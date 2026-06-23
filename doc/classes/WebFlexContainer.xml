@@ -1,0 +1,362 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="WebFlexContainer" inherits="Container" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		A container that lays out child controls like CSS flexbox.
+	</brief_description>
+	<description>
+		[WebFlexContainer] arranges child [Control] nodes using the same main flexbox properties as browser CSS: [member flex_direction], [member flex_wrap], [member justify_content], [member align_items], [member align_content], [member row_gap], and [member column_gap].
+		Each child can override its flex item values with [method set_item_flex_grow], [method set_item_flex_shrink], [method set_item_flex_basis], [method set_item_align_self], and [method set_item_order]. In the Inspector, these values are also exposed as dynamic properties under [code]flex_items/&lt;child_name&gt;/[/code].
+		The visual box is themed through the [theme_item normal] and [theme_item hover] [StyleBox] items. CSS padding is themed separately with [theme_item padding_top], [theme_item padding_right], [theme_item padding_bottom], and [theme_item padding_left], plus their [code]hover_padding_*[/code] variants. The effective CSS inset is the active [StyleBox]'s margin, usually the border width for [StyleBoxFlat], plus the active padding value on each side.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_align_content" qualifiers="const">
+			<return type="int" enum="WebFlexContainer.AlignContent" />
+			<description>
+				Returns how flex lines are packed along the cross axis when wrapping is enabled.
+			</description>
+		</method>
+		<method name="get_align_items" qualifiers="const">
+			<return type="int" enum="WebFlexContainer.AlignItems" />
+			<description>
+				Returns the default cross-axis alignment used by child controls.
+			</description>
+		</method>
+		<method name="get_box_sizing" qualifiers="const">
+			<return type="int" enum="WebFlexContainer.BoxSizing" />
+			<description>
+				Returns whether [member size] is interpreted like CSS [code]content-box[/code] or [code]border-box[/code].
+			</description>
+		</method>
+		<method name="get_column_gap" qualifiers="const">
+			<return type="float" />
+			<description>
+				Returns the CSS [code]column-gap[/code] in pixels.
+			</description>
+		</method>
+		<method name="get_flex_direction" qualifiers="const">
+			<return type="int" enum="WebFlexContainer.FlexDirection" />
+			<description>
+				Returns the main axis and direction used to place flex items.
+			</description>
+		</method>
+		<method name="get_flex_wrap" qualifiers="const">
+			<return type="int" enum="WebFlexContainer.FlexWrap" />
+			<description>
+				Returns whether child controls are forced onto one line or can wrap onto multiple lines.
+			</description>
+		</method>
+		<method name="get_item_align_self" qualifiers="const">
+			<return type="int" enum="WebFlexContainer.AlignSelf" />
+			<param index="0" name="child" type="Control" />
+			<description>
+				Returns [param child]'s cross-axis alignment override. [constant ALIGN_SELF_AUTO] uses [member align_items].
+			</description>
+		</method>
+		<method name="get_item_flex_basis" qualifiers="const">
+			<return type="float" />
+			<param index="0" name="child" type="Control" />
+			<description>
+				Returns [param child]'s flex base size in pixels. A negative value means CSS [code]auto[/code].
+			</description>
+		</method>
+		<method name="get_item_flex_grow" qualifiers="const">
+			<return type="float" />
+			<param index="0" name="child" type="Control" />
+			<description>
+				Returns [param child]'s CSS [code]flex-grow[/code] factor.
+			</description>
+		</method>
+		<method name="get_item_flex_shrink" qualifiers="const">
+			<return type="float" />
+			<param index="0" name="child" type="Control" />
+			<description>
+				Returns [param child]'s CSS [code]flex-shrink[/code] factor.
+			</description>
+		</method>
+		<method name="get_item_order" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="child" type="Control" />
+			<description>
+				Returns [param child]'s CSS [code]order[/code] value.
+			</description>
+		</method>
+		<method name="get_justify_content" qualifiers="const">
+			<return type="int" enum="WebFlexContainer.JustifyContent" />
+			<description>
+				Returns how free space is distributed along the main axis.
+			</description>
+		</method>
+		<method name="get_row_gap" qualifiers="const">
+			<return type="float" />
+			<description>
+				Returns the CSS [code]row-gap[/code] in pixels.
+			</description>
+		</method>
+		<method name="set_align_content">
+			<return type="void" />
+			<param index="0" name="align" type="int" enum="WebFlexContainer.AlignContent" />
+			<description>
+				Sets how flex lines are packed along the cross axis when wrapping is enabled.
+			</description>
+		</method>
+		<method name="set_align_items">
+			<return type="void" />
+			<param index="0" name="align" type="int" enum="WebFlexContainer.AlignItems" />
+			<description>
+				Sets the default cross-axis alignment used by child controls.
+			</description>
+		</method>
+		<method name="set_box_sizing">
+			<return type="void" />
+			<param index="0" name="box_sizing" type="int" enum="WebFlexContainer.BoxSizing" />
+			<description>
+				Sets whether [member size] is interpreted like CSS [code]content-box[/code] or [code]border-box[/code].
+			</description>
+		</method>
+		<method name="set_column_gap">
+			<return type="void" />
+			<param index="0" name="gap" type="float" />
+			<description>
+				Sets the CSS [code]column-gap[/code] in pixels.
+			</description>
+		</method>
+		<method name="set_flex_direction">
+			<return type="void" />
+			<param index="0" name="direction" type="int" enum="WebFlexContainer.FlexDirection" />
+			<description>
+				Sets the main axis and direction used to place flex items.
+			</description>
+		</method>
+		<method name="set_flex_wrap">
+			<return type="void" />
+			<param index="0" name="wrap" type="int" enum="WebFlexContainer.FlexWrap" />
+			<description>
+				Sets whether child controls are forced onto one line or can wrap onto multiple lines.
+			</description>
+		</method>
+		<method name="set_item_align_self">
+			<return type="void" />
+			<param index="0" name="child" type="Control" />
+			<param index="1" name="align_self" type="int" enum="WebFlexContainer.AlignSelf" />
+			<description>
+				Sets [param child]'s cross-axis alignment override. Use [constant ALIGN_SELF_AUTO] to inherit [member align_items].
+			</description>
+		</method>
+		<method name="set_item_flex_basis">
+			<return type="void" />
+			<param index="0" name="child" type="Control" />
+			<param index="1" name="basis" type="float" />
+			<description>
+				Sets [param child]'s flex base size in pixels. Use a negative value for CSS [code]auto[/code].
+			</description>
+		</method>
+		<method name="set_item_flex_grow">
+			<return type="void" />
+			<param index="0" name="child" type="Control" />
+			<param index="1" name="grow" type="float" />
+			<description>
+				Sets [param child]'s CSS [code]flex-grow[/code] factor.
+			</description>
+		</method>
+		<method name="set_item_flex_shrink">
+			<return type="void" />
+			<param index="0" name="child" type="Control" />
+			<param index="1" name="shrink" type="float" />
+			<description>
+				Sets [param child]'s CSS [code]flex-shrink[/code] factor.
+			</description>
+		</method>
+		<method name="set_item_order">
+			<return type="void" />
+			<param index="0" name="child" type="Control" />
+			<param index="1" name="order" type="int" />
+			<description>
+				Sets [param child]'s CSS [code]order[/code] value. Lower values are placed first, with scene order used as a tie-breaker.
+			</description>
+		</method>
+		<method name="set_justify_content">
+			<return type="void" />
+			<param index="0" name="justify" type="int" enum="WebFlexContainer.JustifyContent" />
+			<description>
+				Sets how free space is distributed along the main axis.
+			</description>
+		</method>
+		<method name="set_row_gap">
+			<return type="void" />
+			<param index="0" name="gap" type="float" />
+			<description>
+				Sets the CSS [code]row-gap[/code] in pixels.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="align_content" type="int" setter="set_align_content" getter="get_align_content" enum="WebFlexContainer.AlignContent" default="0">
+			Controls CSS [code]align-content[/code] for multi-line flex containers.
+		</member>
+		<member name="align_items" type="int" setter="set_align_items" getter="get_align_items" enum="WebFlexContainer.AlignItems" default="0">
+			Controls CSS [code]align-items[/code], the default cross-axis alignment for flex items.
+		</member>
+		<member name="box_sizing" type="int" setter="set_box_sizing" getter="get_box_sizing" enum="WebFlexContainer.BoxSizing" default="0">
+			Controls whether [member size] is treated as CSS [code]content-box[/code] or [code]border-box[/code]. This value is also available as the [theme_item box_sizing] theme constant.
+		</member>
+		<member name="column_gap" type="float" setter="set_column_gap" getter="get_column_gap" default="0.0">
+			CSS [code]column-gap[/code] in pixels.
+		</member>
+		<member name="flex_direction" type="int" setter="set_flex_direction" getter="get_flex_direction" enum="WebFlexContainer.FlexDirection" default="0">
+			Controls CSS [code]flex-direction[/code].
+		</member>
+		<member name="flex_wrap" type="int" setter="set_flex_wrap" getter="get_flex_wrap" enum="WebFlexContainer.FlexWrap" default="0">
+			Controls CSS [code]flex-wrap[/code].
+		</member>
+		<member name="justify_content" type="int" setter="set_justify_content" getter="get_justify_content" enum="WebFlexContainer.JustifyContent" default="0">
+			Controls CSS [code]justify-content[/code].
+		</member>
+		<member name="row_gap" type="float" setter="set_row_gap" getter="get_row_gap" default="0.0">
+			CSS [code]row-gap[/code] in pixels.
+		</member>
+	</members>
+	<constants>
+		<constant name="FLEX_DIRECTION_ROW" value="0" enum="FlexDirection">
+			Items are placed horizontally from the start side to the end side, like CSS [code]row[/code].
+		</constant>
+		<constant name="FLEX_DIRECTION_ROW_REVERSE" value="1" enum="FlexDirection">
+			Items are placed horizontally in reverse main-axis order, like CSS [code]row-reverse[/code].
+		</constant>
+		<constant name="FLEX_DIRECTION_COLUMN" value="2" enum="FlexDirection">
+			Items are placed vertically from the start side to the end side, like CSS [code]column[/code].
+		</constant>
+		<constant name="FLEX_DIRECTION_COLUMN_REVERSE" value="3" enum="FlexDirection">
+			Items are placed vertically in reverse main-axis order, like CSS [code]column-reverse[/code].
+		</constant>
+		<constant name="FLEX_WRAP_NOWRAP" value="0" enum="FlexWrap">
+			All items stay on a single flex line, like CSS [code]nowrap[/code].
+		</constant>
+		<constant name="FLEX_WRAP_WRAP" value="1" enum="FlexWrap">
+			Items can wrap onto multiple lines, like CSS [code]wrap[/code].
+		</constant>
+		<constant name="FLEX_WRAP_WRAP_REVERSE" value="2" enum="FlexWrap">
+			Items can wrap onto multiple lines with reversed cross-axis stacking, like CSS [code]wrap-reverse[/code].
+		</constant>
+		<constant name="JUSTIFY_FLEX_START" value="0" enum="JustifyContent">
+			Packs items toward the main-start edge.
+		</constant>
+		<constant name="JUSTIFY_FLEX_END" value="1" enum="JustifyContent">
+			Packs items toward the main-end edge.
+		</constant>
+		<constant name="JUSTIFY_CENTER" value="2" enum="JustifyContent">
+			Centers items along the main axis.
+		</constant>
+		<constant name="JUSTIFY_SPACE_BETWEEN" value="3" enum="JustifyContent">
+			Distributes free space between adjacent items.
+		</constant>
+		<constant name="JUSTIFY_SPACE_AROUND" value="4" enum="JustifyContent">
+			Distributes free space around each item.
+		</constant>
+		<constant name="JUSTIFY_SPACE_EVENLY" value="5" enum="JustifyContent">
+			Distributes free space evenly before, between, and after items.
+		</constant>
+		<constant name="ALIGN_ITEMS_STRETCH" value="0" enum="AlignItems">
+			Stretches auto-sized items along the cross axis.
+		</constant>
+		<constant name="ALIGN_ITEMS_FLEX_START" value="1" enum="AlignItems">
+			Aligns items to the cross-start edge.
+		</constant>
+		<constant name="ALIGN_ITEMS_FLEX_END" value="2" enum="AlignItems">
+			Aligns items to the cross-end edge.
+		</constant>
+		<constant name="ALIGN_ITEMS_CENTER" value="3" enum="AlignItems">
+			Centers items along the cross axis.
+		</constant>
+		<constant name="ALIGN_ITEMS_BASELINE" value="4" enum="AlignItems">
+			Aligns items to their baseline.
+		</constant>
+		<constant name="ALIGN_CONTENT_STRETCH" value="0" enum="AlignContent">
+			Stretches flex lines to fill the cross axis.
+		</constant>
+		<constant name="ALIGN_CONTENT_FLEX_START" value="1" enum="AlignContent">
+			Packs flex lines toward the cross-start edge.
+		</constant>
+		<constant name="ALIGN_CONTENT_FLEX_END" value="2" enum="AlignContent">
+			Packs flex lines toward the cross-end edge.
+		</constant>
+		<constant name="ALIGN_CONTENT_CENTER" value="3" enum="AlignContent">
+			Centers flex lines along the cross axis.
+		</constant>
+		<constant name="ALIGN_CONTENT_SPACE_BETWEEN" value="4" enum="AlignContent">
+			Distributes free cross-axis space between flex lines.
+		</constant>
+		<constant name="ALIGN_CONTENT_SPACE_AROUND" value="5" enum="AlignContent">
+			Distributes free cross-axis space around each flex line.
+		</constant>
+		<constant name="ALIGN_CONTENT_SPACE_EVENLY" value="6" enum="AlignContent">
+			Distributes free cross-axis space evenly before, between, and after flex lines.
+		</constant>
+		<constant name="ALIGN_SELF_AUTO" value="0" enum="AlignSelf">
+			Uses [member align_items].
+		</constant>
+		<constant name="ALIGN_SELF_STRETCH" value="1" enum="AlignSelf">
+			Stretches this item along the cross axis when possible.
+		</constant>
+		<constant name="ALIGN_SELF_FLEX_START" value="2" enum="AlignSelf">
+			Aligns this item to the cross-start edge.
+		</constant>
+		<constant name="ALIGN_SELF_FLEX_END" value="3" enum="AlignSelf">
+			Aligns this item to the cross-end edge.
+		</constant>
+		<constant name="ALIGN_SELF_CENTER" value="4" enum="AlignSelf">
+			Centers this item along the cross axis.
+		</constant>
+		<constant name="ALIGN_SELF_BASELINE" value="5" enum="AlignSelf">
+			Aligns this item to the line baseline.
+		</constant>
+		<constant name="BOX_SIZING_CONTENT_BOX" value="0" enum="BoxSizing">
+			[member size] is treated as the CSS content box. The active [StyleBox] is drawn around it.
+		</constant>
+		<constant name="BOX_SIZING_BORDER_BOX" value="1" enum="BoxSizing">
+			[member size] is treated as the CSS border box. The flex content area is reduced by the active [StyleBox]'s margins plus the active padding theme constants.
+		</constant>
+	</constants>
+	<theme_items>
+		<theme_item name="normal" data_type="style" type="StyleBox">
+			The CSS box used when the mouse is not hovering this container. Use [StyleBoxFlat] for background, solid border, border radius, and a single box shadow. CSS padding is controlled by the [theme_item padding_top], [theme_item padding_right], [theme_item padding_bottom], and [theme_item padding_left] constants.
+		</theme_item>
+		<theme_item name="hover" data_type="style" type="StyleBox">
+			The CSS box used while the mouse is hovering this container. If unset, [theme_item normal] is used.
+		</theme_item>
+		<theme_item name="box_sizing" data_type="constant" type="int" default="0">
+			The CSS [code]box-sizing[/code] mode. [code]0[/code] means [constant BOX_SIZING_CONTENT_BOX], matching the browser default [code]content-box[/code]: [member size] is the content box and the active [StyleBox] plus padding are drawn around it. [code]1[/code] means [constant BOX_SIZING_BORDER_BOX], matching CSS [code]border-box[/code]: [member size] includes the active [StyleBox]'s border margins and the active padding constants, and the flex content area is reduced by those values.
+		</theme_item>
+		<theme_item name="opacity" data_type="constant" type="int" default="1000">
+			The CSS [code]opacity[/code] used when not hovered, from [code]0[/code] transparent to [code]1000[/code] opaque.
+		</theme_item>
+		<theme_item name="hover_opacity" data_type="constant" type="int" default="1000">
+			The CSS [code]opacity[/code] used while hovered, from [code]0[/code] transparent to [code]1000[/code] opaque.
+		</theme_item>
+		<theme_item name="padding_top" data_type="constant" type="int" default="0">
+			The normal-state CSS [code]padding-top[/code] in pixels. Browser default is [code]0[/code].
+		</theme_item>
+		<theme_item name="padding_right" data_type="constant" type="int" default="0">
+			The normal-state CSS [code]padding-right[/code] in pixels. Browser default is [code]0[/code].
+		</theme_item>
+		<theme_item name="padding_bottom" data_type="constant" type="int" default="0">
+			The normal-state CSS [code]padding-bottom[/code] in pixels. Browser default is [code]0[/code].
+		</theme_item>
+		<theme_item name="padding_left" data_type="constant" type="int" default="0">
+			The normal-state CSS [code]padding-left[/code] in pixels. Browser default is [code]0[/code].
+		</theme_item>
+		<theme_item name="hover_padding_top" data_type="constant" type="int" default="-1">
+			The CSS [code]padding-top[/code] in pixels while the mouse is hovering this container. Use [code]-1[/code] to inherit [theme_item padding_top], matching CSS hover behavior when padding is not overridden.
+		</theme_item>
+		<theme_item name="hover_padding_right" data_type="constant" type="int" default="-1">
+			The CSS [code]padding-right[/code] in pixels while the mouse is hovering this container. Use [code]-1[/code] to inherit [theme_item padding_right], matching CSS hover behavior when padding is not overridden.
+		</theme_item>
+		<theme_item name="hover_padding_bottom" data_type="constant" type="int" default="-1">
+			The CSS [code]padding-bottom[/code] in pixels while the mouse is hovering this container. Use [code]-1[/code] to inherit [theme_item padding_bottom], matching CSS hover behavior when padding is not overridden.
+		</theme_item>
+		<theme_item name="hover_padding_left" data_type="constant" type="int" default="-1">
+			The CSS [code]padding-left[/code] in pixels while the mouse is hovering this container. Use [code]-1[/code] to inherit [theme_item padding_left], matching CSS hover behavior when padding is not overridden.
+		</theme_item>
+	</theme_items>
+</class>

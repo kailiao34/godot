@@ -39,6 +39,7 @@
 #include "scene/resources/style_box_line.h"
 #include "scene/resources/theme.h"
 #include "scene/scene_string_names.h"
+#include "scene/gui/web_flex_container.h"
 #include "scene/theme/default_theme_icons.gen.h"
 #include "scene/theme/theme_db.h"
 #include "servers/text/text_server.h"
@@ -1294,6 +1295,19 @@ void fill_default_theme(Ref<Theme> &theme, const Ref<Font> &default_font, const 
 	theme->set_constant("v_separation", "VFlowContainer", Math::round(4 * scale));
 
 	theme->set_stylebox(SceneStringName(panel), "PanelContainer", make_flat_stylebox(style_normal_color, 0, 0, 0, 0));
+	theme->set_stylebox(CoreStringName(normal), "WebFlexContainer", make_empty_stylebox(0, 0, 0, 0));
+	theme->set_stylebox(SceneStringName(hover), "WebFlexContainer", make_empty_stylebox(0, 0, 0, 0));
+	theme->set_constant("box_sizing", "WebFlexContainer", WebFlexContainer::BOX_SIZING_CONTENT_BOX);
+	theme->set_constant("opacity", "WebFlexContainer", 1000);
+	theme->set_constant("hover_opacity", "WebFlexContainer", 1000);
+	theme->set_constant("padding_top", "WebFlexContainer", 0);
+	theme->set_constant("padding_right", "WebFlexContainer", 0);
+	theme->set_constant("padding_bottom", "WebFlexContainer", 0);
+	theme->set_constant("padding_left", "WebFlexContainer", 0);
+	theme->set_constant("hover_padding_top", "WebFlexContainer", -1);
+	theme->set_constant("hover_padding_right", "WebFlexContainer", -1);
+	theme->set_constant("hover_padding_bottom", "WebFlexContainer", -1);
+	theme->set_constant("hover_padding_left", "WebFlexContainer", -1);
 	theme->set_stylebox("split_bar_background", "SplitContainer", make_empty_stylebox(0, 0, 0, 0));
 	theme->set_stylebox("split_bar_background", "VSplitContainer", make_empty_stylebox(0, 0, 0, 0));
 	theme->set_stylebox("split_bar_background", "HSplitContainer", make_empty_stylebox(0, 0, 0, 0));
