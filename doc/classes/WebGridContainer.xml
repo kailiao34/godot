@@ -1,0 +1,498 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="WebGridContainer" inherits="Container" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		A container that arranges its children using the browser's CSS Grid layout model.
+	</brief_description>
+	<description>
+		[WebGridContainer] lays out its child controls in a grid of [member row_count] by [member column_count] cells, reproducing the behavior of a CSS [code]display: grid[/code] element. Children are placed in document order using the full CSS auto-placement algorithm (like [code]grid-auto-flow: row[/code]); rows are added implicitly when there are more children than explicit cells.
+		Each row and column track is sized with a unit matching CSS: [constant UNIT_AUTO] (content based), [constant UNIT_PX] (pixels), [constant UNIT_PERCENT] (percentage of the container size on that axis) and [constant UNIT_FR] (a fraction of the leftover space). Track sizes are set with [method set_column_track_unit]/[method set_column_track_value] and the row equivalents.
+		Each child can span several tracks and/or be placed explicitly, like CSS [code]grid-column[/code]/[code]grid-row[/code], via [method set_child_column_start]/[method set_child_column_span] and the row equivalents.
+		[member justify_items]/[member align_items] set the default alignment of every child within its area, and can be overridden per child with [method set_child_justify_self]/[method set_child_align_self]. [member justify_content]/[member align_content] distribute leftover space between and around the tracks. [member column_gap]/[member row_gap] add gutters between tracks.
+		The grid lines can be dragged and cells can be selected and merged (the editor offers this on the 2D canvas; setting [member runtime_interactive] enables the same behavior at runtime). All edit/runtime interaction is exposed as methods ([method find_line_at], [method begin_line_drag], [method select_cell], [method merge_selected_cells], etc.) so it can be scripted and tested.
+		All property defaults match the CSS initial values. Note that, unlike a CSS box, a Godot [Control] cannot be smaller than its content's minimum size, so the container grows to fit its children instead of letting them overflow a fixed size.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="begin_cell_drag">
+			<return type="void" />
+			<param index="0" name="cell" type="Vector2i" />
+			<description>
+				Starts a cell-selection drag anchored at [param cell] (column in [code]x[/code], row in [code]y[/code]). Follow with [method update_cell_drag] and [method end_cell_drag].
+			</description>
+		</method>
+		<method name="begin_line_drag">
+			<return type="void" />
+			<param index="0" name="is_columns" type="bool" />
+			<param index="1" name="boundary" type="int" />
+			<param index="2" name="ctrl" type="bool" default="false" />
+			<description>
+				Starts dragging the grid line between track [param boundary] and [param boundary] + 1 (a column boundary when [param is_columns] is [code]true[/code], otherwise a row boundary). When [param ctrl] is [code]true[/code] the whole axis is scaled proportionally. Follow with [method update_line_drag] and [method end_line_drag].
+			</description>
+		</method>
+		<method name="cell_at" qualifiers="const">
+			<return type="Vector2i" />
+			<param index="0" name="local_position" type="Vector2" />
+			<description>
+				Returns the cell (column in [code]x[/code], row in [code]y[/code]) at [param local_position] (in the container's local coordinates), or [code](-1, -1)[/code] if the point is not over a cell.
+			</description>
+		</method>
+		<method name="clear_cell_selection">
+			<return type="void" />
+			<description>
+				Clears the current cell selection and emits [signal cells_selected] with an empty rectangle.
+			</description>
+		</method>
+		<method name="end_cell_drag">
+			<return type="void" />
+			<description>
+				Ends a cell-selection drag started with [method begin_cell_drag]. The selection itself is kept.
+			</description>
+		</method>
+		<method name="end_line_drag">
+			<return type="void" />
+			<description>
+				Ends a grid-line drag started with [method begin_line_drag].
+			</description>
+		</method>
+		<method name="export_css">
+			<return type="String" />
+			<description>
+				Returns the current grid as a CSS string: a [code]grid[/code] rule with [code]grid-template-rows[/code], [code]grid-template-columns[/code] and [code]gap[/code], followed by one rule per child (named after the child node) carrying its [code]grid-column[/code], [code]grid-row[/code], [code]justify-self[/code] and [code]align-self[/code]. Children whose placement and alignment are all default are omitted. Visual styling (background, border, shadow) is handled by the [code]panel[/code] Theme StyleBox and is not part of the exported CSS. See [method import_css] for the inverse.
+			</description>
+		</method>
+		<method name="find_line_at" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="local_position" type="Vector2" />
+			<param index="1" name="radius" type="float" default="8.0" />
+			<description>
+				Hit-tests a draggable grid line near [param local_position] (local coordinates), within [param radius] pixels. The radius is shrunk automatically for narrow tracks so two close lines never overlap their hit zones. A boundary that runs through the interior of a merged cell is not hit-testable there (it has no visible line and cannot be dragged). Returns a [Dictionary] with [code]axis[/code] ([code]"column"[/code], [code]"row"[/code] or [code]""[/code]) and [code]index[/code] (the boundary index, or [code]-1[/code] if no line was hit).
+			</description>
+		</method>
+		<method name="get_axis_available" qualifiers="const">
+			<return type="float" />
+			<param index="0" name="is_columns" type="bool" />
+			<description>
+				Returns the container's size along the requested axis (width when [param is_columns] is [code]true[/code], otherwise height).
+			</description>
+		</method>
+		<method name="get_child_align_self" qualifiers="const">
+			<return type="int" enum="WebGridContainer.SelfAlign" />
+			<param index="0" name="index" type="int" />
+			<description>
+				Returns the [code]align-self[/code] override of the child at [param index] (in sortable-child order).
+			</description>
+		</method>
+		<method name="get_child_column_span" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="index" type="int" />
+			<description>
+				Returns how many columns the child at [param index] spans (CSS [code]grid-column: span N[/code]).
+			</description>
+		</method>
+		<method name="get_child_column_start" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="index" type="int" />
+			<description>
+				Returns the explicit 1-indexed column line the child at [param index] starts on, or [code]0[/code] for automatic placement.
+			</description>
+		</method>
+		<method name="get_child_justify_self" qualifiers="const">
+			<return type="int" enum="WebGridContainer.SelfAlign" />
+			<param index="0" name="index" type="int" />
+			<description>
+				Returns the [code]justify-self[/code] override of the child at [param index] (in sortable-child order).
+			</description>
+		</method>
+		<method name="get_child_row_span" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="index" type="int" />
+			<description>
+				Returns how many rows the child at [param index] spans (CSS [code]grid-row: span N[/code]).
+			</description>
+		</method>
+		<method name="get_child_row_start" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="index" type="int" />
+			<description>
+				Returns the explicit 1-indexed row line the child at [param index] starts on, or [code]0[/code] for automatic placement.
+			</description>
+		</method>
+		<method name="get_column_track_unit" qualifiers="const">
+			<return type="int" enum="WebGridContainer.TrackUnit" />
+			<param index="0" name="index" type="int" />
+			<description>
+				Returns the sizing unit of column track [param index].
+			</description>
+		</method>
+		<method name="get_column_track_value" qualifiers="const">
+			<return type="float" />
+			<param index="0" name="index" type="int" />
+			<description>
+				Returns the size value of column track [param index] (interpreted according to its unit).
+			</description>
+		</method>
+		<method name="get_effective_column_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the number of columns actually used after auto-placement, including any implicit columns created by spans or explicit placement (always at least [member column_count]).
+			</description>
+		</method>
+		<method name="get_effective_row_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the number of rows actually used after auto-placement, including implicit rows created when there are more children than explicit cells (always at least [member row_count]).
+			</description>
+		</method>
+		<method name="get_gap_rects" qualifiers="const">
+			<return type="Array" />
+			<description>
+				Returns the gap regions (the spacing between tracks) as an [Array] of [Rect2] in local container coordinates, like the browser DevTools grid-gap overlay. A gap strip that falls inside a merged cell is omitted (the merged area reads as one block). Returns an empty array when both [member column_gap] and [member row_gap] are [code]0[/code]. Shared by the runtime overlay and the canvas editor gizmo.
+			</description>
+		</method>
+		<method name="get_grid_line_segments" qualifiers="const">
+			<return type="Array" />
+			<description>
+				Returns the grid-line segments to draw, in local container coordinates, as an [Array] of [PackedVector2Array] (each holding a [code]start[/code] and [code]end[/code] point). Lines are continuous across gaps (one segment per run of cells, so a gap never breaks a line) and are split where they would cross a merged cell's interior, so they line up exactly with the laid-out cells. The built-in overlay draws its cell outlines from the cell rects instead, so these segments are for headless tests and for custom overlays that want the raw lines.
+			</description>
+		</method>
+		<method name="get_merged_rects" qualifiers="const">
+			<return type="Array" />
+			<description>
+				Returns the merged cell areas (children whose placed span is larger than one cell on either axis) as an [Array] of [Rect2i] ([code]position[/code] = top-left cell, [code]size[/code] = column/row span). Used by the editor and the runtime overlay to skip the interior grid lines of a merged block.
+			</description>
+		</method>
+		<method name="get_resolved_column_offsets" qualifiers="const">
+			<return type="PackedFloat32Array" />
+			<description>
+				Returns the laid-out start offset of every column track (including implicit ones) for the current container size.
+			</description>
+		</method>
+		<method name="get_resolved_column_sizes" qualifiers="const">
+			<return type="PackedFloat32Array" />
+			<description>
+				Returns the laid-out size of every column track (including implicit ones) for the current container size.
+			</description>
+		</method>
+		<method name="get_resolved_row_offsets" qualifiers="const">
+			<return type="PackedFloat32Array" />
+			<description>
+				Returns the laid-out start offset of every row track (including implicit ones) for the current container size.
+			</description>
+		</method>
+		<method name="get_resolved_row_sizes" qualifiers="const">
+			<return type="PackedFloat32Array" />
+			<description>
+				Returns the laid-out size of every row track (including implicit ones) for the current container size.
+			</description>
+		</method>
+		<method name="get_row_track_unit" qualifiers="const">
+			<return type="int" enum="WebGridContainer.TrackUnit" />
+			<param index="0" name="index" type="int" />
+			<description>
+				Returns the sizing unit of row track [param index].
+			</description>
+		</method>
+		<method name="get_row_track_value" qualifiers="const">
+			<return type="float" />
+			<param index="0" name="index" type="int" />
+			<description>
+				Returns the size value of row track [param index] (interpreted according to its unit).
+			</description>
+		</method>
+		<method name="get_selection_rect" qualifiers="const">
+			<return type="Rect2i" />
+			<description>
+				Returns the currently selected cell range ([code]position[/code] = top-left cell, [code]size[/code] = number of columns/rows), or an empty rectangle if there is no selection.
+			</description>
+		</method>
+		<method name="has_cell_selection" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if a cell range is currently selected.
+			</description>
+		</method>
+		<method name="import_css">
+			<return type="void" />
+			<param index="0" name="css" type="String" />
+			<description>
+				Updates the grid from a CSS string. The [code]grid[/code] rule sets [code]grid-template-rows[/code] / [code]grid-template-columns[/code] (each token is one track: [code]auto[/code], [code]&lt;n&gt;px[/code], [code]&lt;n&gt;%[/code] or [code]&lt;n&gt;fr[/code]) and [code]gap[/code] / [code]row-gap[/code] / [code]column-gap[/code]. Any other rule is matched to a child by node name and may set [code]grid-column[/code] / [code]grid-row[/code] (as [code]start / end[/code] or [code]span n[/code]), [code]justify-self[/code] and [code]align-self[/code]. Box-model properties ([code]padding[/code], [code]border[/code], [code]background-color[/code], [code]box-shadow[/code]) are ignored; use the [code]panel[/code] Theme StyleBox for visual styling instead. Inverse of [method export_css].
+			</description>
+		</method>
+		<method name="is_grid_editable" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] unless [member draw_grid] is [constant DRAW_GRID_NEVER]. When it is [code]false[/code] the node has no grid overlay and no grid editing at all: lines cannot be dragged, cells cannot be selected, and merging / unmerging is unavailable, so the node behaves like any other container.
+			</description>
+		</method>
+		<method name="is_line_dragging" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] while a grid-line drag is in progress.
+			</description>
+		</method>
+		<method name="merge_selected_cells">
+			<return type="int" />
+			<description>
+				Applies the current cell selection as a span to the child occupying the selection's top-left cell, creating an explicit placement. Clears the selection and emits [signal cells_merged]. Returns the merged child's index, or [code]-1[/code] if there was nothing to merge.
+			</description>
+		</method>
+		<method name="select_cell">
+			<return type="void" />
+			<param index="0" name="cell" type="Vector2i" />
+			<param index="1" name="shift" type="bool" default="false" />
+			<description>
+				Selects [param cell]. When [param shift] is [code]true[/code] and a selection already exists, the selection is extended to the rectangle spanning from the anchor to [param cell] (like Excel's shift+click). Emits [signal cells_selected].
+			</description>
+		</method>
+		<method name="set_child_align_self">
+			<return type="void" />
+			<param index="0" name="index" type="int" />
+			<param index="1" name="align" type="int" enum="WebGridContainer.SelfAlign" />
+			<description>
+				Sets the [code]align-self[/code] override of the child at [param index].
+			</description>
+		</method>
+		<method name="set_child_column_span">
+			<return type="void" />
+			<param index="0" name="index" type="int" />
+			<param index="1" name="span" type="int" />
+			<description>
+				Sets how many columns the child at [param index] spans (minimum 1). Equivalent to CSS [code]grid-column: span N[/code].
+			</description>
+		</method>
+		<method name="set_child_column_start">
+			<return type="void" />
+			<param index="0" name="index" type="int" />
+			<param index="1" name="start" type="int" />
+			<description>
+				Sets the explicit 1-indexed column line the child at [param index] starts on. Pass [code]0[/code] for automatic placement.
+			</description>
+		</method>
+		<method name="set_child_justify_self">
+			<return type="void" />
+			<param index="0" name="index" type="int" />
+			<param index="1" name="align" type="int" enum="WebGridContainer.SelfAlign" />
+			<description>
+				Sets the [code]justify-self[/code] override of the child at [param index].
+			</description>
+		</method>
+		<method name="set_child_row_span">
+			<return type="void" />
+			<param index="0" name="index" type="int" />
+			<param index="1" name="span" type="int" />
+			<description>
+				Sets how many rows the child at [param index] spans (minimum 1). Equivalent to CSS [code]grid-row: span N[/code].
+			</description>
+		</method>
+		<method name="set_child_row_start">
+			<return type="void" />
+			<param index="0" name="index" type="int" />
+			<param index="1" name="start" type="int" />
+			<description>
+				Sets the explicit 1-indexed row line the child at [param index] starts on. Pass [code]0[/code] for automatic placement.
+			</description>
+		</method>
+		<method name="set_column_track_unit">
+			<return type="void" />
+			<param index="0" name="index" type="int" />
+			<param index="1" name="unit" type="int" enum="WebGridContainer.TrackUnit" />
+			<description>
+				Sets the sizing unit of column track [param index].
+			</description>
+		</method>
+		<method name="set_column_track_value">
+			<return type="void" />
+			<param index="0" name="index" type="int" />
+			<param index="1" name="value" type="float" />
+			<description>
+				Sets the size value of column track [param index] (interpreted according to its unit).
+			</description>
+		</method>
+		<method name="set_row_track_unit">
+			<return type="void" />
+			<param index="0" name="index" type="int" />
+			<param index="1" name="unit" type="int" enum="WebGridContainer.TrackUnit" />
+			<description>
+				Sets the sizing unit of row track [param index].
+			</description>
+		</method>
+		<method name="set_row_track_value">
+			<return type="void" />
+			<param index="0" name="index" type="int" />
+			<param index="1" name="value" type="float" />
+			<description>
+				Sets the size value of row track [param index] (interpreted according to its unit).
+			</description>
+		</method>
+		<method name="unmerge_selected_cells">
+			<return type="int" />
+			<description>
+				Resets every merged child overlapped by the current selection back to a single cell, keeping each child anchored at its merged area's top-left. Returns the number of children unmerged, and emits [signal cells_unmerged] once per child.
+			</description>
+		</method>
+		<method name="update_cell_drag">
+			<return type="void" />
+			<param index="0" name="cell" type="Vector2i" />
+			<description>
+				Extends the in-progress cell-selection drag to [param cell]. Does nothing if no drag is active. Emits [signal cells_selected].
+			</description>
+		</method>
+		<method name="update_line_drag">
+			<return type="void" />
+			<param index="0" name="local_position" type="Vector2" />
+			<description>
+				Moves the dragged grid line so its boundary follows [param local_position] (local coordinates). The resolved layout updates immediately. Dragging a boundary trades size only between its two adjacent tracks; an [constant UNIT_FR][code]/[/code][constant UNIT_FR] boundary trades in fraction units so the other [code]fr[/code] tracks are unaffected, while a fixed[code]/[/code][code]fr[/code] boundary resizes the fixed side and lets the [code]fr[/code] track absorb the rest.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="align_content" type="int" setter="set_align_content" getter="get_align_content" enum="WebGridContainer.ContentAlign" default="3">
+			Distributes leftover vertical space between and around the row tracks. Equivalent to the CSS [code]align-content[/code] property. The default [constant CONTENT_STRETCH] matches the CSS initial value [code]normal[/code].
+		</member>
+		<member name="align_items" type="int" setter="set_align_items" getter="get_align_items" enum="WebGridContainer.ItemsAlign" default="0">
+			Default vertical alignment of each child within its area. Equivalent to the CSS [code]align-items[/code] property. Overridden per child by [method set_child_align_self].
+		</member>
+		<member name="column_count" type="int" setter="set_column_count" getter="get_column_count" default="1">
+			The number of explicit column tracks. Equivalent to the number of tracks in CSS [code]grid-template-columns[/code].
+		</member>
+		<member name="column_gap" type="float" setter="set_column_gap" getter="get_column_gap" default="0.0">
+			The gutter, in pixels, between column tracks. Equivalent to the CSS [code]column-gap[/code] property.
+		</member>
+		<member name="draw_grid" type="int" setter="set_draw_grid" getter="get_draw_grid" enum="WebGridContainer.DrawGrid" default="0">
+			When the browser-DevTools-style overlay (hatched cells and gap strips, merged blocks, the cell selection and the grid frame) is drawn over the container, and whether the grid can be edited on the canvas at all. See [constant DRAW_GRID_SELECTED], [constant DRAW_GRID_ALWAYS] and [constant DRAW_GRID_NEVER]. In a running scene the overlay additionally requires [member runtime_interactive].
+		</member>
+		<member name="justify_content" type="int" setter="set_justify_content" getter="get_justify_content" enum="WebGridContainer.ContentAlign" default="3">
+			Distributes leftover horizontal space between and around the column tracks. Equivalent to the CSS [code]justify-content[/code] property. The default [constant CONTENT_STRETCH] matches the CSS initial value [code]normal[/code].
+		</member>
+		<member name="justify_items" type="int" setter="set_justify_items" getter="get_justify_items" enum="WebGridContainer.ItemsAlign" default="0">
+			Default horizontal alignment of each child within its area. Equivalent to the CSS [code]justify-items[/code] property. Overridden per child by [method set_child_justify_self].
+		</member>
+		<member name="row_count" type="int" setter="set_row_count" getter="get_row_count" default="1">
+			The number of explicit row tracks. Equivalent to the number of tracks in CSS [code]grid-template-rows[/code]. Extra children create implicit rows beyond this count.
+		</member>
+		<member name="row_gap" type="float" setter="set_row_gap" getter="get_row_gap" default="0.0">
+			The gutter, in pixels, between row tracks. Equivalent to the CSS [code]row-gap[/code] property.
+		</member>
+		<member name="runtime_interactive" type="bool" setter="set_runtime_interactive" getter="is_runtime_interactive" default="false">
+			When [code]true[/code], the container handles mouse input at runtime to drag grid lines and select/merge cells, the same way the editor does at edit time. An internal overlay captures the input so the child controls are never selected instead of the grid.
+		</member>
+		<member name="runtime_show_merge_button" type="bool" setter="set_show_merge_button" getter="is_show_merge_button" default="false">
+			When [code]true[/code] (and [member runtime_interactive] is enabled), a default [b]Merge[/b] button appears centered over the current multi-cell selection at runtime. Pressing it calls [method merge_selected_cells]. This button only appears in a running scene; in the editor, use the [b]Merge Cells[/b] button in the 2D canvas toolbar instead.
+		</member>
+	</members>
+	<signals>
+		<signal name="grid_changed">
+			<description>
+				Emitted when the grid definition changes (track count, sizes, gaps, alignment, per-child placement, or interaction state). Used by the editor to keep the inspector and canvas in sync.
+			</description>
+		</signal>
+		<signal name="cells_selected">
+			<param index="0" name="rect" type="Rect2i" />
+			<description>
+				Emitted when the cell selection changes. [param rect] is the selected range ([code]position[/code] = top-left cell, [code]size[/code] = columns/rows), or empty when the selection was cleared.
+			</description>
+		</signal>
+		<signal name="cells_merged">
+			<param index="0" name="child_index" type="int" />
+			<param index="1" name="rect" type="Rect2i" />
+			<description>
+				Emitted by [method merge_selected_cells] after a merge. [param child_index] is the child that received the span and [param rect] is the merged cell range.
+			</description>
+		</signal>
+		<signal name="cells_unmerged">
+			<param index="0" name="child_index" type="int" />
+			<description>
+				Emitted by [method unmerge_selected_cells] once for each child whose span was reset back to a single cell. [param child_index] is that child's index.
+			</description>
+		</signal>
+	</signals>
+	<constants>
+		<constant name="DRAW_GRID_SELECTED" value="0" enum="DrawGrid">
+			Draw the grid overlay only while this node is selected in the editor. This is the default.
+		</constant>
+		<constant name="DRAW_GRID_ALWAYS" value="1" enum="DrawGrid">
+			Always draw the grid overlay, even while something else is selected.
+		</constant>
+		<constant name="DRAW_GRID_NEVER" value="2" enum="DrawGrid">
+			Never draw the grid overlay, and turn off every grid interaction: no line dragging, no cell selection, and no merging or unmerging. The node then behaves like any other container on the canvas.
+		</constant>
+		<constant name="UNIT_AUTO" value="0" enum="TrackUnit">
+			Content-based track sizing (CSS [code]auto[/code]). The default unit.
+		</constant>
+		<constant name="UNIT_PX" value="1" enum="TrackUnit">
+			Fixed size in pixels (CSS [code]&lt;length&gt;[/code]).
+		</constant>
+		<constant name="UNIT_PERCENT" value="2" enum="TrackUnit">
+			Percentage of the container's size on the track's axis (CSS [code]&lt;percentage&gt;[/code]).
+		</constant>
+		<constant name="UNIT_FR" value="3" enum="TrackUnit">
+			A fraction of the leftover space (CSS [code]&lt;flex&gt;[/code]/[code]fr[/code]).
+		</constant>
+		<constant name="ITEMS_STRETCH" value="0" enum="ItemsAlign">
+			Stretch each child to fill its area on the axis (CSS [code]stretch[/code]).
+		</constant>
+		<constant name="ITEMS_START" value="1" enum="ItemsAlign">
+			Align each child to the start of its area (CSS [code]start[/code]).
+		</constant>
+		<constant name="ITEMS_END" value="2" enum="ItemsAlign">
+			Align each child to the end of its area (CSS [code]end[/code]).
+		</constant>
+		<constant name="ITEMS_CENTER" value="3" enum="ItemsAlign">
+			Center each child within its area (CSS [code]center[/code]).
+		</constant>
+		<constant name="SELF_AUTO" value="0" enum="SelfAlign">
+			Use the container's [member justify_items]/[member align_items] value (CSS [code]auto[/code]).
+		</constant>
+		<constant name="SELF_STRETCH" value="1" enum="SelfAlign">
+			Stretch this child to fill its area on the axis.
+		</constant>
+		<constant name="SELF_START" value="2" enum="SelfAlign">
+			Align this child to the start of its area.
+		</constant>
+		<constant name="SELF_END" value="3" enum="SelfAlign">
+			Align this child to the end of its area.
+		</constant>
+		<constant name="SELF_CENTER" value="4" enum="SelfAlign">
+			Center this child within its area.
+		</constant>
+		<constant name="CONTENT_START" value="0" enum="ContentAlign">
+			Pack the tracks at the start of the container (CSS [code]start[/code]).
+		</constant>
+		<constant name="CONTENT_END" value="1" enum="ContentAlign">
+			Pack the tracks at the end of the container (CSS [code]end[/code]).
+		</constant>
+		<constant name="CONTENT_CENTER" value="2" enum="ContentAlign">
+			Center the tracks within the container (CSS [code]center[/code]).
+		</constant>
+		<constant name="CONTENT_STRETCH" value="3" enum="ContentAlign">
+			Grow the auto-sized tracks to fill the leftover space (CSS [code]stretch[/code]; also the initial [code]normal[/code] behavior).
+		</constant>
+		<constant name="CONTENT_SPACE_BETWEEN" value="4" enum="ContentAlign">
+			Distribute leftover space evenly between the tracks (CSS [code]space-between[/code]).
+		</constant>
+		<constant name="CONTENT_SPACE_AROUND" value="5" enum="ContentAlign">
+			Distribute leftover space evenly around the tracks (CSS [code]space-around[/code]).
+		</constant>
+		<constant name="CONTENT_SPACE_EVENLY" value="6" enum="ContentAlign">
+			Distribute leftover space so all gaps, including the edges, are equal (CSS [code]space-evenly[/code]).
+		</constant>
+	</constants>
+	<theme_items>
+		<theme_item name="padding_bottom" data_type="constant" type="int">
+			Bottom padding in pixels. Shifts the bottom edge of the grid content area inward, like CSS [code]padding-bottom[/code]. Default is [code]0[/code].
+		</theme_item>
+		<theme_item name="padding_left" data_type="constant" type="int">
+			Left padding in pixels. Shifts the left edge of the grid content area inward, like CSS [code]padding-left[/code]. Default is [code]0[/code].
+		</theme_item>
+		<theme_item name="padding_right" data_type="constant" type="int">
+			Right padding in pixels. Shifts the right edge of the grid content area inward, like CSS [code]padding-right[/code]. Default is [code]0[/code].
+		</theme_item>
+		<theme_item name="padding_top" data_type="constant" type="int">
+			Top padding in pixels. Shifts the top edge of the grid content area inward, like CSS [code]padding-top[/code]. Default is [code]0[/code].
+		</theme_item>
+		<theme_item name="panel" data_type="style" type="StyleBox">
+			Background and border style for the container, drawn over the full outer rect (including the padding area). Assign a [StyleBoxFlat] here via a [Theme] resource or a per-node [b]Theme Override[/b] in the Inspector to add a background colour, border, rounded corners, or a drop shadow. The [code]padding_*[/code] theme constants control the content inset independently of this StyleBox.
+		</theme_item>
+	</theme_items>
+</class>

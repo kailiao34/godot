@@ -1293,6 +1293,15 @@ void fill_default_theme(Ref<Theme> &theme, const Ref<Font> &default_font, const 
 	theme->set_constant("h_separation", "VFlowContainer", Math::round(4 * scale));
 	theme->set_constant("v_separation", "VFlowContainer", Math::round(4 * scale));
 
+	// WebGridContainer paints no background of its own by default (CSS grid has no
+	// box of its own to speak of); without an entry here the `panel` lookup would fall
+	// through to ThemeDB's grey fallback stylebox and draw a border around every grid.
+	theme->set_stylebox(SceneStringName(panel), "WebGridContainer", make_empty_stylebox());
+	theme->set_constant("padding_left", "WebGridContainer", 0);
+	theme->set_constant("padding_top", "WebGridContainer", 0);
+	theme->set_constant("padding_right", "WebGridContainer", 0);
+	theme->set_constant("padding_bottom", "WebGridContainer", 0);
+
 	theme->set_stylebox(SceneStringName(panel), "PanelContainer", make_flat_stylebox(style_normal_color, 0, 0, 0, 0));
 	theme->set_stylebox("split_bar_background", "SplitContainer", make_empty_stylebox(0, 0, 0, 0));
 	theme->set_stylebox("split_bar_background", "VSplitContainer", make_empty_stylebox(0, 0, 0, 0));
