@@ -1,0 +1,277 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="WebSelect" inherits="Control" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		HTML-like select control with customizable select styling slots.
+	</brief_description>
+	<description>
+		[WebSelect] is a form-style select control modeled after HTML's [code]&lt;select&gt;[/code] element. It supports single selection, multiple selection, listbox sizing, disabled items, separators, option groups, item values, and theme items corresponding to CSS customizable select parts such as the closed select button, picker, picker icon, selected option checkmark, and option states.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="add_icon_item">
+			<return type="void" />
+			<param index="0" name="icon" type="Texture2D" />
+			<param index="1" name="text" type="String" />
+			<param index="2" name="value" type="String" default="&quot;&quot;" />
+			<param index="3" name="id" type="int" default="-1" />
+			<description>
+				Adds an item with an icon, display text, submitted value, and optional ID. If [param value] is empty, the item value falls back to [param text] unless changed later with [method set_item_value].
+			</description>
+		</method>
+		<method name="add_item">
+			<return type="void" />
+			<param index="0" name="text" type="String" />
+			<param index="1" name="value" type="String" default="&quot;&quot;" />
+			<param index="2" name="id" type="int" default="-1" />
+			<description>
+				Adds an item with display text, submitted value, and optional ID. If [param value] is empty, the item value falls back to [param text] unless changed later with [method set_item_value].
+			</description>
+		</method>
+		<method name="add_optgroup">
+			<return type="void" />
+			<param index="0" name="label" type="String" />
+			<description>
+				Adds a non-selectable option group label.
+			</description>
+		</method>
+		<method name="add_separator">
+			<return type="void" />
+			<param index="0" name="text" type="String" default="&quot;&quot;" />
+			<description>
+				Adds a non-selectable separator.
+			</description>
+		</method>
+		<method name="clear">
+			<return type="void" />
+			<description>
+				Removes all items.
+			</description>
+		</method>
+		<method name="deselect">
+			<return type="void" />
+			<param index="0" name="idx" type="int" />
+			<description>
+				Deselects an item when [member multiple] is enabled.
+			</description>
+		</method>
+		<method name="deselect_all">
+			<return type="void" />
+			<description>
+				Deselects all items.
+			</description>
+		</method>
+		<method name="get_selected">
+			<return type="int" />
+			<description>
+				Returns the primary selected item index, or [code]-1[/code].
+			</description>
+		</method>
+		<method name="get_selected_indices">
+			<return type="PackedInt32Array" />
+			<description>
+				Returns all selected item indices.
+			</description>
+		</method>
+		<method name="get_style_metrics" experimental="">
+			<return type="Dictionary" />
+			<description>
+				Returns structured geometry, value, and theme metrics for automated browser parity tests.
+			</description>
+		</method>
+		<method name="get_value">
+			<return type="String" />
+			<description>
+				Returns the selected item value.
+			</description>
+		</method>
+		<method name="get_values">
+			<return type="PackedStringArray" />
+			<description>
+				Returns all selected item values.
+			</description>
+		</method>
+		<method name="hide_picker">
+			<return type="void" />
+			<description>
+				Hides the popup picker.
+			</description>
+		</method>
+		<method name="is_valid">
+			<return type="bool" />
+			<description>
+				Returns whether the control satisfies its required value constraint.
+			</description>
+		</method>
+		<method name="select">
+			<return type="void" />
+			<param index="0" name="idx" type="int" />
+			<description>
+				Selects an item.
+			</description>
+		</method>
+		<method name="show_picker">
+			<return type="void" />
+			<description>
+				Shows the popup picker for dropdown mode.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="allow_reselect" type="bool" setter="set_allow_reselect" getter="get_allow_reselect" default="false">
+			If [code]true[/code], selecting the current item can emit selection signals again.
+		</member>
+		<member name="appearance" type="int" setter="set_appearance" getter="get_appearance" enum="WebSelect.Appearance" default="1">
+			Selects the visual appearance model.
+		</member>
+		<member name="disabled" type="bool" setter="set_disabled" getter="is_disabled" default="false">
+			If [code]true[/code], the control cannot be interacted with.
+		</member>
+		<member name="multiple" type="bool" setter="set_multiple" getter="is_multiple" default="false">
+			If [code]true[/code], multiple items can be selected and the control is drawn as a listbox.
+		</member>
+		<member name="name_attribute" type="String" setter="set_name_attribute" getter="get_name_attribute" default="&quot;&quot;">
+			Form-style name associated with the selected value.
+		</member>
+		<member name="required" type="bool" setter="set_required" getter="is_required" default="false">
+			If [code]true[/code], an empty selected value is invalid.
+		</member>
+		<member name="size_rows" type="int" setter="set_size_rows" getter="get_size_rows" default="0">
+			Number of visible rows. Values greater than [code]1[/code] draw the control as a listbox.
+		</member>
+	</members>
+	<signals>
+		<signal name="changed">
+			<description>
+				Emitted when selection changes.
+			</description>
+		</signal>
+		<signal name="item_selected">
+			<param index="0" name="index" type="int" />
+			<description>
+				Emitted when an item is selected.
+			</description>
+		</signal>
+	</signals>
+	<constants>
+		<constant name="APPEARANCE_AUTO" value="0" enum="Appearance">
+			Use the normal browser-like select appearance.
+		</constant>
+		<constant name="APPEARANCE_BASE_SELECT" value="1" enum="Appearance">
+			Use the customizable select base appearance model.
+		</constant>
+	</constants>
+	<theme_items>
+		<theme_item name="font_color" data_type="color" type="Color" default="Color(0, 0, 0, 1)">
+			Text color used by the closed select and unselected options.
+		</theme_item>
+		<theme_item name="font_disabled_color" data_type="color" type="Color" default="Color(0, 0, 0, 0.45)">
+			Text color used when the select or an option is disabled.
+		</theme_item>
+		<theme_item name="font_focus_color" data_type="color" type="Color" default="Color(0, 0, 0, 1)">
+			Text color used when the select has keyboard focus.
+		</theme_item>
+		<theme_item name="font_hover_color" data_type="color" type="Color" default="Color(0, 0, 0, 1)">
+			Text color used for hovered options and the hovered closed select.
+		</theme_item>
+		<theme_item name="font_placeholder_color" data_type="color" type="Color" default="Color(0, 0, 0, 0.65)">
+			Text color reserved for placeholder-like empty selected content.
+		</theme_item>
+		<theme_item name="font_selected_color" data_type="color" type="Color" default="Color(0.063, 0.063, 0.063, 1)">
+			Text color used by selected options.
+		</theme_item>
+		<theme_item name="checkmark_margin" data_type="constant" type="int" default="2">
+			Horizontal spacing after the selected option checkmark, matching CSS [code]::checkmark[/code] spacing.
+		</theme_item>
+		<theme_item name="h_separation" data_type="constant" type="int" default="2">
+			Horizontal spacing between selected text and the picker icon in the closed select.
+		</theme_item>
+		<theme_item name="icon_separation" data_type="constant" type="int" default="4">
+			Horizontal spacing between an item icon and its text.
+		</theme_item>
+		<theme_item name="option_indent" data_type="constant" type="int" default="0">
+			Extra indentation applied to normal options.
+		</theme_item>
+		<theme_item name="option_min_height" data_type="constant" type="int" default="17">
+			Minimum height for each option row in the picker or listbox.
+		</theme_item>
+		<theme_item name="optgroup_indent" data_type="constant" type="int" default="12">
+			Extra indentation applied to options that belong to an option group.
+		</theme_item>
+		<theme_item name="outline_size" data_type="constant" type="int" default="0">
+			Reserved outline thickness for text rendering.
+		</theme_item>
+		<theme_item name="picker_icon_margin" data_type="constant" type="int" default="2">
+			Margin between the picker icon and the edge of the closed select, matching CSS [code]::picker-icon[/code] spacing.
+		</theme_item>
+		<theme_item name="picker_max_height" data_type="constant" type="int" default="240">
+			Maximum desired picker height before scrolling is required.
+		</theme_item>
+		<theme_item name="picker_offset" data_type="constant" type="int" default="1">
+			Vertical offset between the closed select and the popup picker.
+		</theme_item>
+		<theme_item name="separator_margin" data_type="constant" type="int" default="4">
+			Horizontal inset used when drawing separator rows.
+		</theme_item>
+		<theme_item name="font" data_type="font" type="Font">
+			Font used by the closed select, picker, and listbox options.
+		</theme_item>
+		<theme_item name="font_size" data_type="font_size" type="int" default="13">
+			Font size used by the closed select, picker, and listbox options.
+		</theme_item>
+		<theme_item name="checkmark_icon" data_type="icon" type="Texture2D">
+			Icon drawn before selected options, corresponding to CSS [code]::checkmark[/code].
+		</theme_item>
+		<theme_item name="picker_icon" data_type="icon" type="Texture2D">
+			Icon drawn in the closed select, corresponding to CSS [code]::picker-icon[/code].
+		</theme_item>
+		<theme_item name="disabled" data_type="style" type="StyleBox">
+			[StyleBox] used by the closed select when disabled.
+		</theme_item>
+		<theme_item name="focus" data_type="style" type="StyleBox">
+			[StyleBox] drawn over the select or listbox when it has keyboard focus.
+		</theme_item>
+		<theme_item name="hover" data_type="style" type="StyleBox">
+			[StyleBox] used by the closed select while hovered.
+		</theme_item>
+		<theme_item name="listbox" data_type="style" type="StyleBox">
+			[StyleBox] used for [member multiple] or [member size_rows] listbox mode.
+		</theme_item>
+		<theme_item name="normal" data_type="style" type="StyleBox">
+			[StyleBox] used by the closed select in its default state.
+		</theme_item>
+		<theme_item name="open" data_type="style" type="StyleBox">
+			[StyleBox] used by the closed select while its picker is open, corresponding to CSS [code]:open[/code].
+		</theme_item>
+		<theme_item name="option" data_type="style" type="StyleBox">
+			[StyleBox] used by normal option rows.
+		</theme_item>
+		<theme_item name="option_disabled" data_type="style" type="StyleBox">
+			[StyleBox] used by disabled option rows.
+		</theme_item>
+		<theme_item name="option_focus" data_type="style" type="StyleBox">
+			[StyleBox] used by the focused option row in listbox mode.
+		</theme_item>
+		<theme_item name="option_hover" data_type="style" type="StyleBox">
+			[StyleBox] used by hovered option rows.
+		</theme_item>
+		<theme_item name="option_selected" data_type="style" type="StyleBox">
+			[StyleBox] used by selected option rows.
+		</theme_item>
+		<theme_item name="option_selected_hover" data_type="style" type="StyleBox">
+			[StyleBox] used by selected option rows while hovered.
+		</theme_item>
+		<theme_item name="optgroup" data_type="style" type="StyleBox">
+			[StyleBox] reserved for option group label rows.
+		</theme_item>
+		<theme_item name="picker" data_type="style" type="StyleBox">
+			[StyleBox] used for the popup picker, corresponding to CSS [code]::picker(select)[/code].
+		</theme_item>
+		<theme_item name="pressed" data_type="style" type="StyleBox">
+			[StyleBox] used by the closed select while pressed.
+		</theme_item>
+		<theme_item name="separator" data_type="style" type="StyleBox">
+			[StyleBox] used for separator rows.
+		</theme_item>
+	</theme_items>
+</class>

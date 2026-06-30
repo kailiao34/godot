@@ -250,6 +250,100 @@ void fill_default_theme(Ref<Theme> &theme, const Ref<Font> &default_font, const 
 	theme->set_constant("outline_size", "OptionButton", 0);
 	theme->set_constant("modulate_arrow", "OptionButton", false);
 
+	// WebSelect
+	theme->set_stylebox("focus", "WebSelect", focus);
+
+	const Color web_select_font_color = Color(0, 0, 0);
+	const Color web_select_bg_color = Color(0, 0, 0, 0);
+	const Color web_select_picker_bg_color = Color(1, 1, 1);
+	const Color web_select_border_color = Color(0, 0, 0);
+	const Color web_select_hover_bg_color = Color(0, 0, 0, 0.1);
+	const Color web_select_disabled_font_color = Color(0, 0, 0, 0.5);
+
+	Ref<StyleBoxFlat> sb_web_select_normal = make_flat_stylebox(web_select_bg_color, 8, 4, 8, 4, 8, true, 1);
+	sb_web_select_normal->set_border_color(web_select_border_color);
+	sb_web_select_normal->set_content_margin_individual(8, 4, 8, 4);
+	sb_web_select_normal->set_corner_radius_all(8);
+	Ref<StyleBoxFlat> sb_web_select_hover = make_flat_stylebox(web_select_hover_bg_color, 8, 4, 8, 4, 8, true, 1);
+	sb_web_select_hover->set_border_color(web_select_border_color);
+	sb_web_select_hover->set_content_margin_individual(8, 4, 8, 4);
+	sb_web_select_hover->set_corner_radius_all(8);
+	Ref<StyleBoxFlat> sb_web_select_pressed = make_flat_stylebox(web_select_bg_color, 8, 4, 8, 4, 8, true, 1);
+	sb_web_select_pressed->set_border_color(web_select_border_color);
+	sb_web_select_pressed->set_content_margin_individual(8, 4, 8, 4);
+	sb_web_select_pressed->set_corner_radius_all(8);
+	Ref<StyleBoxFlat> sb_web_select_open = make_flat_stylebox(web_select_bg_color, 8, 4, 8, 4, 8, true, 1);
+	sb_web_select_open->set_border_color(web_select_border_color);
+	sb_web_select_open->set_content_margin_individual(8, 4, 8, 4);
+	sb_web_select_open->set_corner_radius_all(8);
+	Ref<StyleBoxFlat> sb_web_select_disabled = make_flat_stylebox(web_select_bg_color, 8, 4, 8, 4, 8, true, 1);
+	sb_web_select_disabled->set_border_color(web_select_border_color);
+	sb_web_select_disabled->set_content_margin_individual(8, 4, 8, 4);
+	sb_web_select_disabled->set_corner_radius_all(8);
+	Ref<StyleBoxFlat> sb_web_select_picker = make_flat_stylebox(web_select_picker_bg_color, 0, 0, 0, 0, 0, true, 1);
+	sb_web_select_picker->set_border_color(web_select_border_color);
+	Ref<StyleBoxFlat> sb_web_select_listbox = make_flat_stylebox(web_select_picker_bg_color, 0, 0, 0, 0, 0, true, 1);
+	sb_web_select_listbox->set_border_color(web_select_border_color);
+	Ref<StyleBox> sb_web_select_option = make_flat_stylebox(Color(0, 0, 0, 0), 8, 0, 8, 0, 0);
+	Ref<StyleBox> sb_web_select_option_hover = make_flat_stylebox(web_select_hover_bg_color, 8, 0, 8, 0, 0);
+	Ref<StyleBox> sb_web_select_option_focus = make_flat_stylebox(web_select_hover_bg_color, 8, 0, 8, 0, 0);
+	Ref<StyleBox> sb_web_select_option_selected = make_flat_stylebox(Color(0, 0, 0, 0), 8, 0, 8, 0, 0);
+	Ref<StyleBox> sb_web_select_option_selected_hover = make_flat_stylebox(web_select_hover_bg_color, 8, 0, 8, 0, 0);
+	Ref<StyleBox> sb_web_select_option_disabled = make_flat_stylebox(Color(0, 0, 0, 0), 8, 0, 8, 0, 0);
+	Ref<StyleBox> sb_web_select_optgroup = make_flat_stylebox(Color(0, 0, 0, 0), 8, 0, 8, 0, 0);
+	sb_web_select_option->set_content_margin_individual(8, 0, 8, 0);
+	sb_web_select_option_hover->set_content_margin_individual(8, 0, 8, 0);
+	sb_web_select_option_focus->set_content_margin_individual(8, 0, 8, 0);
+	sb_web_select_option_selected->set_content_margin_individual(8, 0, 8, 0);
+	sb_web_select_option_selected_hover->set_content_margin_individual(8, 0, 8, 0);
+	sb_web_select_option_disabled->set_content_margin_individual(8, 0, 8, 0);
+	sb_web_select_optgroup->set_content_margin_individual(8, 0, 8, 0);
+	Ref<StyleBoxLine> sb_web_select_separator = memnew(StyleBoxLine);
+	sb_web_select_separator->set_color(web_select_border_color);
+	sb_web_select_separator->set_thickness(Math::round(scale));
+	sb_web_select_separator->set_content_margin_individual(0, Math::round(4 * scale), 0, Math::round(4 * scale));
+
+	theme->set_stylebox(CoreStringName(normal), "WebSelect", sb_web_select_normal);
+	theme->set_stylebox(SceneStringName(hover), "WebSelect", sb_web_select_hover);
+	theme->set_stylebox(SceneStringName(pressed), "WebSelect", sb_web_select_pressed);
+	theme->set_stylebox("open", "WebSelect", sb_web_select_open);
+	theme->set_stylebox("disabled", "WebSelect", sb_web_select_disabled);
+	theme->set_stylebox("picker", "WebSelect", sb_web_select_picker);
+	theme->set_stylebox("listbox", "WebSelect", sb_web_select_listbox);
+	theme->set_stylebox("option", "WebSelect", sb_web_select_option);
+	theme->set_stylebox("option_hover", "WebSelect", sb_web_select_option_hover);
+	theme->set_stylebox("option_focus", "WebSelect", sb_web_select_option_focus);
+	theme->set_stylebox("option_selected", "WebSelect", sb_web_select_option_selected);
+	theme->set_stylebox("option_selected_hover", "WebSelect", sb_web_select_option_selected_hover);
+	theme->set_stylebox("option_disabled", "WebSelect", sb_web_select_option_disabled);
+	theme->set_stylebox("optgroup", "WebSelect", sb_web_select_optgroup);
+	theme->set_stylebox("separator", "WebSelect", sb_web_select_separator);
+
+	theme->set_icon("picker_icon", "WebSelect", icons["option_button_arrow"]);
+	theme->set_icon("checkmark_icon", "WebSelect", icons["checked"]);
+
+	theme->set_font(SceneStringName(font), "WebSelect", Ref<Font>());
+	theme->set_font_size(SceneStringName(font_size), "WebSelect", 16);
+
+	theme->set_color(SceneStringName(font_color), "WebSelect", web_select_font_color);
+	theme->set_color("font_hover_color", "WebSelect", web_select_font_color);
+	theme->set_color("font_focus_color", "WebSelect", web_select_font_color);
+	theme->set_color("font_disabled_color", "WebSelect", web_select_disabled_font_color);
+	theme->set_color("font_selected_color", "WebSelect", web_select_font_color);
+	theme->set_color("font_placeholder_color", "WebSelect", Color(0, 0, 0, 0.65));
+
+	theme->set_constant("h_separation", "WebSelect", 0);
+	theme->set_constant("icon_separation", "WebSelect", Math::round(4 * scale));
+	theme->set_constant("picker_icon_margin", "WebSelect", 0);
+	theme->set_constant("checkmark_margin", "WebSelect", 0);
+	theme->set_constant("option_min_height", "WebSelect", Math::round(16 * scale));
+	theme->set_constant("optgroup_indent", "WebSelect", Math::round(12 * scale));
+	theme->set_constant("option_indent", "WebSelect", 0);
+	theme->set_constant("separator_margin", "WebSelect", Math::round(4 * scale));
+	theme->set_constant("picker_max_height", "WebSelect", Math::round(240 * scale));
+	theme->set_constant("picker_offset", "WebSelect", Math::round(1 * scale));
+	theme->set_constant("outline_size", "WebSelect", 0);
+
 	// MenuButton
 
 	theme->set_stylebox(CoreStringName(normal), "MenuButton", button_normal);
