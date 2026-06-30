@@ -98,6 +98,9 @@
 #include "scene/gui/tree.h"
 #include "scene/gui/video_stream_player.h"
 #include "scene/gui/virtual_joystick.h"
+#include "scene/gui/web_input.h"
+#include "scene/gui/web_input_picker.h"
+#include "scene/gui/web_text_area.h"
 #include "scene/main/canvas_item.h"
 #include "scene/main/canvas_layer.h"
 #include "scene/main/http_request.h"
@@ -565,6 +568,12 @@ void register_scene_types() {
 	GDREGISTER_CLASS(FoldableContainer);
 
 	GDREGISTER_CLASS(VirtualJoystick);
+
+	GDREGISTER_CLASS(WebInput);
+	GDREGISTER_INTERNAL_CLASS(WebInputPickerPanel);
+	GDREGISTER_CLASS(WebTextArea);
+	GDREGISTER_INTERNAL_CLASS(WebTextAreaEditor);
+	GDREGISTER_INTERNAL_CLASS(WebTextAreaChrome);
 
 	OS::get_singleton()->yield(); // may take time to init
 

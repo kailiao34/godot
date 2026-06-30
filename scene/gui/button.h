@@ -41,6 +41,10 @@ private:
 	String text;
 	String xl_text;
 	Ref<TextParagraph> text_buf;
+	Point2 selection_text_origin;
+	int selection_from = 0;
+	int selection_to = 0;
+	Rect2 _get_text_selection_line_rect(int p_line) const;
 
 	String language;
 	TextDirection text_direction = TEXT_DIRECTION_AUTO;
@@ -129,6 +133,11 @@ public:
 
 	void set_text(const String &p_text);
 	String get_text() const;
+	Rect2 get_text_selection_rect() const;
+	int get_text_selection_column_at_pos(const Point2 &p_position) const;
+	Point2 get_text_selection_caret_position(int p_column) const;
+	void set_text_selection(int p_from, int p_to);
+	String get_selected_text() const;
 
 	void set_text_overrun_behavior(TextServer::OverrunBehavior p_behavior);
 	TextServer::OverrunBehavior get_text_overrun_behavior() const;

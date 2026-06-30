@@ -3290,6 +3290,10 @@ void Viewport::_update_mouse_over(Vector2 p_pos) {
 	if (is_embedding_subwindows()) {
 		for (int i = gui.sub_windows.size() - 1; i >= 0; i--) {
 			Window *sw = gui.sub_windows[i].window;
+			// Keep hover routing consistent with mouse input forwarding.
+			if (sw->get_flag(Window::FLAG_MOUSE_PASSTHROUGH)) {
+				continue;
+			}
 			Rect2 swrect = Rect2(sw->get_position(), sw->get_size());
 			Rect2 swrect_border = swrect;
 

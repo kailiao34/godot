@@ -39,6 +39,32 @@
 		<link title="2D Dodge The Creeps Demo">https://godotengine.org/asset-library/asset/2712</link>
 		<link title="Operating System Testing Demo">https://godotengine.org/asset-library/asset/2789</link>
 	</tutorials>
+	<methods>
+		<method name="get_text_selection_rect" qualifiers="const">
+			<return type="Rect2" />
+			<description>Returns the native shaped caption bounds in local coordinates.</description>
+		</method>
+		<method name="get_text_selection_column_at_pos" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="position" type="Vector2" />
+			<description>Hit-tests a Unicode caption offset using the drawn text paragraph.</description>
+		</method>
+		<method name="get_text_selection_caret_position" qualifiers="const">
+			<return type="Vector2" />
+			<param index="0" name="column" type="int" />
+			<description>Returns a caption caret position in local coordinates.</description>
+		</method>
+		<method name="set_text_selection">
+			<return type="void" />
+			<param index="0" name="from" type="int" />
+			<param index="1" name="to" type="int" />
+			<description>Paints an external document selection without altering button activation or focus.</description>
+		</method>
+		<method name="get_selected_text" qualifiers="const">
+			<return type="String" />
+			<description>Returns the externally selected caption text.</description>
+		</method>
+	</methods>
 	<members>
 		<member name="alignment" type="int" setter="set_text_alignment" getter="get_text_alignment" enum="HorizontalAlignment" default="1">
 			Text alignment policy for the button's text.

@@ -463,12 +463,39 @@ void Button::_notification(int p_what) {
 					text_ofs.y += custom_element_size.height - drawable_size_remained.height; // Offset by the icon's height.
 				}
 
+				selection_text_origin = text_ofs;
+				if (selection_from != selection_to) {
+					for (int i = 0; i < text_buf->get_line_count(); i++) {
+						Rect2 line_rect = _get_text_selection_line_rect(i);
+						Vector<Vector2> ranges = TS->shaped_text_get_selection(text_buf->get_line_rid(i), selection_from, selection_to);
+						for (const Vector2 &range : ranges) {
+							Rect2 selected(line_rect.position + Point2(range.x, 0), Size2(range.y - range.x, line_rect.size.y));
+							selected = selected.intersection(Rect2(text_ofs, Size2(text_buf->get_width(), text_buf->get_size().y)));
+							if (selected.has_area()) {
+								draw_rect(selected, get_theme_color(SNAME("selection_color"), SNAME("TextEdit")));
+							}
+						}
+					}
+				}
 				Color font_outline_color = theme_cache.font_outline_color;
 				int outline_size = theme_cache.outline_size;
 				if (outline_size > 0 && font_outline_color.a > 0.0f) {
 					text_buf->draw_outline(ci, text_ofs, outline_size, font_outline_color);
 				}
 				text_buf->draw(ci, text_ofs, font_color);
+				if (selection_from != selection_to) {
+					for (int i = 0; i < text_buf->get_line_count(); i++) {
+						RID line = text_buf->get_line_rid(i);
+						Rect2 rect = _get_text_selection_line_rect(i);
+						for (const Vector2 &range : TS->shaped_text_get_selection(line, selection_from, selection_to)) {
+							float left = MAX(range.x, MAX(0.0f, text_ofs.x - rect.position.x));
+							float right = MIN(range.y, text_ofs.x + text_buf->get_width() - rect.position.x);
+							if (right > left) {
+								TS->shaped_text_draw(line, ci, rect.position + Point2(0, TS->shaped_text_get_ascent(line)), left, right, get_theme_color(SNAME("font_selected_color"), SNAME("TextEdit")));
+							}
+						}
+					}
+				}
 			}
 		} break;
 	}
@@ -604,6 +631,7 @@ void Button::set_text(const String &p_text) {
 	}
 	text = p_text;
 	xl_text = translated_text;
+	selection_from = selection_to = 0;
 	_shape();
 
 	update_configuration_warnings();
@@ -787,7 +815,83 @@ VerticalAlignment Button::get_vertical_icon_alignment() const {
 	return vertical_icon_alignment;
 }
 
+Rect2 Button::_get_text_selection_line_rect(int p_line) const {
+	Point2 origin = selection_text_origin;
+	for (int i = 0; i < p_line; i++) {
+		origin.y += text_buf->get_line_size(i).y + text_buf->get_line_spacing();
+	}
+	RID line = text_buf->get_line_rid(p_line);
+	Size2 size = text_buf->get_line_size(p_line);
+	float available = text_buf->get_width();
+	bool rtl = TS->shaped_text_get_inferred_direction(line) == TextServer::DIRECTION_RTL;
+	switch (text_buf->get_alignment()) {
+		case HORIZONTAL_ALIGNMENT_CENTER:
+			origin.x += size.x <= available ? Math::floor((available - size.x) / 2.0f) : (rtl ? available - size.x : 0.0f);
+			break;
+		case HORIZONTAL_ALIGNMENT_RIGHT:
+			origin.x += available - size.x;
+			break;
+		case HORIZONTAL_ALIGNMENT_FILL:
+			origin.x += rtl ? available - size.x : 0.0f;
+			break;
+		default:
+			break;
+	}
+	return Rect2(origin, size);
+}
+
+Rect2 Button::get_text_selection_rect() const {
+	Rect2 rect;
+	for (int i = 0; i < text_buf->get_line_count(); i++) {
+		rect = i == 0 ? _get_text_selection_line_rect(i) : rect.merge(_get_text_selection_line_rect(i));
+	}
+	return rect;
+}
+
+int Button::get_text_selection_column_at_pos(const Point2 &p_position) const {
+	for (int i = 0; i < text_buf->get_line_count(); i++) {
+		Rect2 rect = _get_text_selection_line_rect(i);
+		if (p_position.y < rect.position.y + rect.size.y || i == text_buf->get_line_count() - 1) {
+			return TS->shaped_text_hit_test_position(text_buf->get_line_rid(i), p_position.x - rect.position.x);
+		}
+	}
+	return 0;
+}
+
+Point2 Button::get_text_selection_caret_position(int p_column) const {
+	int column = CLAMP(p_column, 0, xl_text.length());
+	for (int i = 0; i < text_buf->get_line_count(); i++) {
+		RID line = text_buf->get_line_rid(i);
+		if (column < TS->shaped_text_get_range(line).y || i == text_buf->get_line_count() - 1) {
+			Rect2 rect = _get_text_selection_line_rect(i);
+			CaretInfo caret = TS->shaped_text_get_carets(line, column);
+			return rect.position + Point2(caret.l_caret.position.x, rect.size.y * 0.5f);
+		}
+	}
+	return selection_text_origin;
+}
+
+void Button::set_text_selection(int p_from, int p_to) {
+	int from = CLAMP(MIN(p_from, p_to), 0, xl_text.length());
+	int to = CLAMP(MAX(p_from, p_to), 0, xl_text.length());
+	if (from == selection_from && to == selection_to) {
+		return;
+	}
+	selection_from = from;
+	selection_to = to;
+	queue_redraw();
+}
+
+String Button::get_selected_text() const {
+	return xl_text.substr(selection_from, selection_to - selection_from);
+}
+
 void Button::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("get_text_selection_rect"), &Button::get_text_selection_rect);
+	ClassDB::bind_method(D_METHOD("get_text_selection_column_at_pos", "position"), &Button::get_text_selection_column_at_pos);
+	ClassDB::bind_method(D_METHOD("get_text_selection_caret_position", "column"), &Button::get_text_selection_caret_position);
+	ClassDB::bind_method(D_METHOD("set_text_selection", "from", "to"), &Button::set_text_selection);
+	ClassDB::bind_method(D_METHOD("get_selected_text"), &Button::get_selected_text);
 	ClassDB::bind_method(D_METHOD("set_text", "text"), &Button::set_text);
 	ClassDB::bind_method(D_METHOD("get_text"), &Button::get_text);
 	ClassDB::bind_method(D_METHOD("set_text_overrun_behavior", "overrun_behavior"), &Button::set_text_overrun_behavior);
