@@ -681,6 +681,45 @@ void fill_default_theme(Ref<Theme> &theme, const Ref<Font> &default_font, const 
 	theme->set_stylebox("pressed_joystick", "VirtualJoystick", style_joystick);
 	theme->set_stylebox("pressed_tip", "VirtualJoystick", style_joystick_tip);
 
+	// WebInput (HTML <input> mirror). The user-agent base that author CSS layers
+	// over; styleboxes approximate Chromium's native field/button look.
+	Ref<StyleBoxFlat> webinput_field = make_flat_stylebox(Color(1, 1, 1), 4, 3, 4, 3, 0, true, 1);
+	webinput_field->set_border_color(Color(118.0 / 255, 118.0 / 255, 118.0 / 255));
+	Ref<StyleBoxFlat> webinput_button = make_flat_stylebox(Color(240.0 / 255, 240.0 / 255, 240.0 / 255), 8, 3, 8, 3, 0, true, 1);
+	webinput_button->set_border_color(Color(118.0 / 255, 118.0 / 255, 118.0 / 255));
+	Ref<StyleBoxFlat> webinput_focus = make_flat_stylebox(Color(0, 0, 0, 0), 0, 0, 0, 0, 0, false, 2);
+	webinput_focus->set_draw_center(false);
+	// Chromium's default text-input focus darkens the border to near-black.
+	webinput_focus->set_border_color(Color(16.0 / 255, 16.0 / 255, 16.0 / 255));
+
+	Ref<StyleBoxFlat> webinput_hover = make_flat_stylebox(Color(0, 0, 0, 0), 0, 0, 0, 0, 0, false, 0);
+	// Each type paints its own :active look (Chromium lightens buttons and the
+	// range track rather than darkening them), so the shared overlay is inert.
+	Ref<StyleBoxFlat> webinput_pressed = make_flat_stylebox(Color(0, 0, 0, 0), 0, 0, 0, 0, 0);
+
+	theme->set_font(SceneStringName(font), "WebInput", Ref<Font>());
+	theme->set_font_size(SceneStringName(font_size), "WebInput", 13);
+	theme->set_color(SceneStringName(font_color), "WebInput", Color(0, 0, 0));
+	theme->set_color("font_placeholder_color", "WebInput", Color(117.0 / 255, 117.0 / 255, 117.0 / 255));
+	theme->set_color("selection_color", "WebInput", Color(0.6, 0.8, 1.0, 0.4));
+	theme->set_color("caret_color", "WebInput", Color(0, 0, 0));
+	// Chromium's default accent-color on Windows (#0075ff), used by the checked
+	// checkbox/radio and the range track.
+	theme->set_color("accent_color", "WebInput", Color(0.0, 117.0 / 255, 1.0));
+	theme->set_constant("font_weight", "WebInput", 400);
+	theme->set_constant("letter_spacing", "WebInput", 0);
+	theme->set_constant("line_height", "WebInput", 0);
+	theme->set_constant("text_align", "WebInput", 0);
+	theme->set_constant("box_sizing", "WebInput", 0);
+	theme->set_font("label_font", "WebInput", Ref<Font>());
+	theme->set_font_size("label_font_size", "WebInput", 13);
+	theme->set_color("label_font_color", "WebInput", Color(0, 0, 0));
+	theme->set_stylebox("field", "WebInput", webinput_field);
+	theme->set_stylebox("button", "WebInput", webinput_button);
+	theme->set_stylebox("focus", "WebInput", webinput_focus);
+	theme->set_stylebox("hover", "WebInput", webinput_hover);
+	theme->set_stylebox("pressed", "WebInput", webinput_pressed);
+
 	// Window
 
 	theme->set_stylebox("embedded_border", "Window", sb_expand(make_flat_stylebox(style_popup_color, 10, 28, 10, 8), 8, 32, 8, 6));

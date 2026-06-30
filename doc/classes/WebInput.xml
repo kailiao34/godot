@@ -1,0 +1,378 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="WebInput" inherits="Control" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		A control that mirrors the HTML [code]&lt;input&gt;[/code] element, including all of its types, attributes, default styling and behavior.
+	</brief_description>
+	<description>
+		[WebInput] reproduces an HTML [code]&lt;input&gt;[/code] element as a Godot [Control]. A single node selects its appearance and behavior through [member input_type], exactly like the HTML [code]type[/code] attribute, and its default styling matches Chromium's user-agent stylesheet pixel-for-pixel for the text family. The node's [member Control.size] corresponds to the CSS [code]width[/code]/[code]height[/code] (border-box).
+		[b]Types.[/b] All 22 HTML input types are supported (see the [code]TYPE_*[/code] constants): the text family ([constant TYPE_TEXT], [constant TYPE_PASSWORD], [constant TYPE_EMAIL], [constant TYPE_URL], [constant TYPE_TEL], [constant TYPE_SEARCH], [constant TYPE_NUMBER]) embeds a [LineEdit] for editing; buttons, checkbox/radio, range, color, file, image, the date/time family and [constant TYPE_HIDDEN] are custom-drawn to match the browser.
+		[b]Styling.[/b] Author styling is layered over the user-agent defaults like the CSS cascade. Use [method set_css] for a single declaration, [method set_css_text] for an inline-style string, or [method clear_css] to reset. The box group (background-color, border width/color/style, border-radius, padding, box-shadow, box-sizing) is composed into a [StyleBoxFlat]; the typography group (color, font-size, font-family, font-weight, line-height, text-align, letter-spacing) is applied to the text and to the [member label_text]. Native widgets (checkbox/radio) intentionally ignore box styling to match the browser's native rendering.
+		[b]Labels.[/b] Set [member label_text] and [member label_position] to wrap the input with a label, equivalent to an HTML [code]&lt;label&gt;[/code] surrounding the input.
+		[b]Validation and forms.[/b] [method check_validity] performs HTML constraint validation; [method submit_form] and [method reset_form] act on sibling [WebInput] nodes that share the same parent.
+		[b]Testing.[/b] The [code]tools/webinput_bridge[/code] harness renders the same specification in a real Godot window and in real Chromium (via Playwright) and compares the computed styling, geometry and pixels; [method get_test_metrics] exposes the node's resolved box model for that comparison.
+		[b]Note:[/b] [WebInput] does not register Godot theme items; all of its appearance is driven by the user-agent defaults and the CSS author overrides described above, so there are no [code]theme_item[/code] tooltips to configure. The supported CSS properties are documented on [method set_css].
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="check_validity" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if the current value satisfies the input's constraints, mirroring the HTML Constraint Validation API. Checks [member required], [member maxlength]/minlength, the [constant TYPE_EMAIL] and [constant TYPE_URL] formats, the [member pattern] (anchored full-string match), and the numeric [member min_value]/[member max_value] for [constant TYPE_NUMBER] and [constant TYPE_RANGE]. Returns [code]true[/code] when no constraint applies.
+			</description>
+		</method>
+		<method name="clear_css">
+			<return type="void" />
+			<description>
+				Removes every CSS override previously set with [method set_css] or [method set_css_text], restoring the user-agent default styling for the current [member input_type].
+			</description>
+		</method>
+		<method name="get_html_attribute" qualifiers="const">
+			<return type="Variant" />
+			<param index="0" name="name" type="String" />
+			<description>
+				Returns the value of an HTML attribute that was stored through [method set_html_attribute] but has no dedicated property (the "long tail" of attributes). Returns [code]null[/code] if the attribute was not set.
+			</description>
+		</method>
+		<method name="get_input_type_string" qualifiers="const">
+			<return type="String" />
+			<description>
+				Returns the current [member input_type] as its HTML string, e.g. [code]"text"[/code], [code]"datetime-local"[/code]. See also [method set_input_type_string].
+			</description>
+		</method>
+		<method name="get_selected_files" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>
+				For [constant TYPE_FILE], returns the absolute paths of the files currently selected, either through the file dialog or [method set_selected_files]. Empty when no file is chosen.
+			</description>
+		</method>
+		<method name="get_test_metrics" qualifiers="const">
+			<return type="Dictionary" />
+			<description>
+				Returns the node's resolved box model as a [Dictionary], used by the [code]webinput_bridge[/code] comparator to diff against Chromium's [code]getComputedStyle[/code]. Keys include [code]size[/code], [code]border[/code], [code]padding[/code], [code]background_color[/code], [code]text_color[/code], [code]border_color[/code], [code]font_size[/code], [code]border_radius[/code], [code]box_shadow[/code], [code]font_weight[/code], [code]line_height[/code], [code]letter_spacing[/code], [code]text_align[/code] and [code]type[/code].
+			</description>
+		</method>
+		<method name="reset_form">
+			<return type="void" />
+			<description>
+				Resets every sibling [WebInput] (same parent) to its markup default value and checked state, mirroring an HTML form reset. Triggered automatically when a [constant TYPE_RESET] input is activated.
+			</description>
+		</method>
+		<method name="send_date_key">
+			<return type="void" />
+			<param index="0" name="keycode" type="int" />
+			<description>
+				Injects a keyboard [enum Key] into a date/time-family input ([constant TYPE_DATE], [constant TYPE_TIME], [constant TYPE_DATETIME_LOCAL], [constant TYPE_MONTH], [constant TYPE_WEEK]) as if the user typed it: digits fill the focused segment, [constant KEY_UP]/[constant KEY_DOWN] increment/decrement and wrap, [constant KEY_LEFT]/[constant KEY_RIGHT] move between segments, and [constant KEY_A]/[constant KEY_P] set AM/PM. Intended for automation and testing; interactive editing is handled automatically when the control has focus.
+			</description>
+		</method>
+		<method name="show_picker">
+			<return type="void" />
+			<description>
+				Opens the date/time drop-down of a date/time-family input ([constant TYPE_DATE], [constant TYPE_TIME], [constant TYPE_DATETIME_LOCAL], [constant TYPE_MONTH], [constant TYPE_WEEK]), the same popup the calendar or clock indicator opens. Clicking the year in the popup's header swaps the calendar for a list of years, so a distant year can be reached without paging month by month. Does nothing when the input is disabled, read-only, or of another type.
+			</description>
+		</method>
+		<method name="set_css">
+			<return type="void" />
+			<param index="0" name="property" type="String" />
+			<param index="1" name="value" type="String" />
+			<description>
+				Sets a single CSS declaration, layered over the user-agent default like the CSS cascade. The property name and value use CSS syntax, e.g. [code]set_css("border-radius", "8px")[/code], [code]set_css("background-color", "#3498db")[/code], [code]set_css("border", "2px solid red")[/code], [code]set_css("box-shadow", "0 2px 4px rgba(0,0,0,0.3)")[/code].
+				Supported box properties: [code]background-color[/code], [code]border[/code], [code]border-width[/code], [code]border-color[/code], [code]border-style[/code], [code]border-radius[/code] (and per-side/per-corner variants), [code]padding[/code] (and per-side), [code]box-shadow[/code], [code]box-sizing[/code]. Supported typography: [code]color[/code], [code]font-size[/code], [code]font-family[/code], [code]font-weight[/code], [code]line-height[/code], [code]text-align[/code], [code]letter-spacing[/code].
+				[b]Limitations:[/b] a single border color is used for all sides; [code]box-shadow[/code] approximates a single outer shadow (no inset/spread/multiple); [code]border-style[/code] supports only solid/none. Box properties have no effect on native widgets ([constant TYPE_CHECKBOX], [constant TYPE_RADIO]), matching the browser. See also [method set_css_text] and [method clear_css].
+			</description>
+		</method>
+		<method name="set_css_text">
+			<return type="void" />
+			<param index="0" name="css" type="String" />
+			<description>
+				Parses and applies a full inline-style string, e.g. [code]set_css_text("border:1px solid red; padding:8px; box-shadow:0 2px 4px rgba(0,0,0,.3)")[/code]. Each [code]property:value[/code] declaration (separated by [code];[/code]) is forwarded to [method set_css].
+			</description>
+		</method>
+		<method name="set_html_attribute">
+			<return type="void" />
+			<param index="0" name="name" type="String" />
+			<param index="1" name="value" type="Variant" />
+			<description>
+				Sets an HTML attribute by its HTML name (using hyphens, e.g. [code]"maxlength"[/code], [code]"accept"[/code]). Recognized attributes are routed to the matching property; the rest are stored and can be read back with [method get_html_attribute]. The markup [code]value[/code]/[code]checked[/code] are also recorded as the defaults used by [method reset_form].
+			</description>
+		</method>
+		<method name="set_input_type_string">
+			<return type="void" />
+			<param index="0" name="type" type="String" />
+			<description>
+				Sets [member input_type] from its HTML string, e.g. [code]"text"[/code], [code]"datetime-local"[/code]. Prints an error for an unknown type. See also [method get_input_type_string].
+			</description>
+		</method>
+		<method name="set_selected_files">
+			<return type="void" />
+			<param index="0" name="files" type="PackedStringArray" />
+			<description>
+				For [constant TYPE_FILE], sets the selected files programmatically (as if chosen in the dialog), updating the displayed label and the [member value] (which becomes [code]C:\fakepath\&lt;name&gt;[/code] like the browser) and emitting [signal value_changed].
+			</description>
+		</method>
+		<method name="submit_form">
+			<return type="Dictionary" />
+			<description>
+				Collects the [code]name[/code] → [code]value[/code] pairs of every successful sibling [WebInput] (same parent), mirroring an HTML form submission, and emits [signal form_submitted] with the resulting [Dictionary]. Unchecked checkboxes/radios and button-like inputs are skipped; a checked checkbox/radio without an explicit value submits [code]"on"[/code]. Triggered automatically when a [constant TYPE_SUBMIT] input is activated.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="accept" type="String" setter="set_accept" getter="get_accept" default="&quot;&quot;">
+			For [constant TYPE_FILE], the comma-separated list of accepted file types (extensions like [code].png[/code] or MIME wildcards like [code]image/*[/code]), used to build the file dialog filters. Equivalent to the HTML [code]accept[/code] attribute.
+		</member>
+		<member name="alt" type="String" setter="set_alt" getter="get_alt" default="&quot;&quot;">
+			For [constant TYPE_IMAGE], the alternative text drawn when [member src] cannot be loaded. Equivalent to the HTML [code]alt[/code] attribute.
+		</member>
+		<member name="checked" type="bool" setter="set_checked" getter="is_checked" default="false">
+			Whether a [constant TYPE_CHECKBOX] or [constant TYPE_RADIO] is checked. Setting a radio checked unchecks the other radios in the same [member input_name] group under the same parent. Equivalent to the HTML [code]checked[/code] attribute.
+		</member>
+		<member name="date_locale" type="String" setter="set_date_locale" getter="get_date_locale" default="&quot;&quot;">
+			Locale the date/time-family editors format with, e.g. [code]"en_US"[/code] or [code]"zh_TW"[/code]. It selects the field order, the separators and the empty placeholders, exactly like a browser's UI language does ([code]mm/dd/yyyy[/code] in [code]en_US[/code], [code]年/月/日[/code] in [code]zh_TW[/code]). Empty follows the operating system locale. Unknown locales fall back to the language, then to [code]en_US[/code].
+		</member>
+		<member name="disabled" type="bool" setter="set_disabled" getter="is_disabled" default="false">
+			Whether the input is disabled. A disabled input does not respond to input and is excluded from [method submit_form]. Equivalent to the HTML [code]disabled[/code] attribute.
+		</member>
+		<member name="image_height" type="int" setter="set_image_height" getter="get_image_height" default="-1">
+			For [constant TYPE_IMAGE], the rendered height in pixels. [code]-1[/code] uses the natural height of the loaded [member src]. Equivalent to the HTML [code]height[/code] attribute.
+		</member>
+		<member name="image_width" type="int" setter="set_image_width" getter="get_image_width" default="-1">
+			For [constant TYPE_IMAGE], the rendered width in pixels. [code]-1[/code] uses the natural width of the loaded [member src]. Equivalent to the HTML [code]width[/code] attribute.
+		</member>
+		<member name="input_height" type="int" setter="set_input_height" getter="get_input_height" default="-1">
+			An explicit box height in pixels for the input ([code]-1[/code] uses the type's default). Equivalent to the CSS [code]height[/code]; honors box-sizing.
+		</member>
+		<member name="input_width" type="int" setter="set_input_width" getter="get_input_width" default="-1">
+			An explicit box width in pixels for the input ([code]-1[/code] uses the type's default). Equivalent to the CSS [code]width[/code]. Use this (or the CSS width) rather than the node's [member Control.size], which the layout system controls.
+			Box sizing follows Chromium's user-agent stylesheet per type: [constant TYPE_SEARCH], the button types, [constant TYPE_IMAGE], [constant TYPE_CHECKBOX], [constant TYPE_RADIO], [constant TYPE_RANGE], [constant TYPE_COLOR] and [constant TYPE_FILE] treat the value as the whole border box, while the remaining types treat it as the content box and grow by their border and padding. A [code]box-sizing[/code] set through [method set_css] overrides that.
+			Content that does not stretch behaves as it does in the browser: [constant TYPE_CHECKBOX] and [constant TYPE_RADIO] centre a square glyph of [code]min(width, height)[/code], [constant TYPE_RANGE] centres its slider at the slider's own height, and [constant TYPE_FILE] keeps its button at the top. Text is centred in the content box and clipped at its edges.
+		</member>
+		<member name="input_name" type="String" setter="set_input_name" getter="get_input_name" default="&quot;&quot;">
+			The control's form name. Used to group radio buttons (only one radio per name may be checked) and as the key in [method submit_form]. Equivalent to the HTML [code]name[/code] attribute.
+		</member>
+		<member name="input_type" type="int" setter="set_input_type" getter="get_input_type" enum="WebInput.Type" default="0">
+			The input type, selecting the appearance and behavior. See the [code]TYPE_*[/code] constants. Equivalent to the HTML [code]type[/code] attribute. Also settable from an HTML string with [method set_input_type_string].
+			Changing the type re-checks [member value] against the new type and replaces anything it cannot represent with that type's default: non-numeric text becomes [code]0[/code] for [constant TYPE_NUMBER] and the midpoint of the range for [constant TYPE_RANGE], an unparseable color becomes [code]#000000[/code], a date/time value that does not fit the new field layout is cleared, and [constant TYPE_FILE] always starts empty.
+		</member>
+		<member name="label_position" type="int" setter="set_label_position" getter="get_label_position" enum="WebInput.LabelPosition" default="0">
+			Where [member label_text] is placed relative to the input box. See the [code]LABEL_*[/code] constants. Mirrors the placement of text inside a wrapping HTML [code]&lt;label&gt;[/code], including its inline layout: for [constant LABEL_LEFT] and [constant LABEL_RIGHT] the label text sits on the input's own baseline (its first text line, which moves with an explicit height), so controls that show no text -- [constant TYPE_CHECKBOX], [constant TYPE_RADIO] and [constant TYPE_RANGE] -- align their bottom edge to it and leave the label's descender below. [constant LABEL_TOP] and [constant LABEL_BOTTOM] put the label on a line of its own above or below the input.
+		</member>
+		<member name="label_text" type="String" setter="set_label" getter="get_label" default="&quot;&quot;">
+			An optional label drawn next to the input, equivalent to wrapping the input in an HTML [code]&lt;label&gt;[/code]. When non-empty, the node grows to include the label and the input is offset by [member label_position]. The label honors the node's CSS typography (color, font-size, font-family, font-weight, letter-spacing).
+		</member>
+		<member name="max_value" type="int" setter="set_max_value" getter="get_max_value" default="100">
+			The maximum value for [constant TYPE_NUMBER]/[constant TYPE_RANGE] (and the upper bound used by [method check_validity]). Equivalent to the HTML [code]max[/code] attribute. See the note on [member min_value].
+		</member>
+		<member name="maxlength" type="int" setter="set_maxlength" getter="get_maxlength" default="-1">
+			The maximum number of characters for text-family inputs. [code]-1[/code] means no limit. Equivalent to the HTML [code]maxlength[/code] attribute.
+		</member>
+		<member name="min_value" type="int" setter="set_min_value" getter="get_min_value" default="0">
+			The minimum value for [constant TYPE_NUMBER]/[constant TYPE_RANGE] (and the lower bound used by [method check_validity]). For [constant TYPE_RANGE] it also sets the start of the track. Equivalent to the HTML [code]min[/code] attribute.
+			[b]Note:[/b] Unlike the HTML attribute, this is a plain integer with no "unset" state, so a [constant TYPE_NUMBER] field is bounded by [member min_value]/[member max_value] even when the markup omitted them. Widen the bounds for fields that need a larger or negative range.
+		</member>
+		<member name="multiple" type="bool" setter="set_multiple" getter="is_multiple" default="false">
+			Allows multiple values: comma-separated addresses for [constant TYPE_EMAIL], or multiple file selection for [constant TYPE_FILE]. Equivalent to the HTML [code]multiple[/code] attribute.
+		</member>
+		<member name="pattern" type="String" setter="set_pattern" getter="get_pattern" default="&quot;&quot;">
+			A regular expression that the value must fully match for [method check_validity] to pass (text family only). Equivalent to the HTML [code]pattern[/code] attribute. Matching uses an anchored [code]^(?:...)$[/code] expression.
+		</member>
+		<member name="placeholder" type="String" setter="set_placeholder" getter="get_placeholder" default="&quot;&quot;">
+			The placeholder text shown in an empty text-family input. Equivalent to the HTML [code]placeholder[/code] attribute.
+		</member>
+		<member name="readonly" type="bool" setter="set_readonly" getter="is_readonly" default="false">
+			Whether the value can be edited by the user. A read-only input still submits its value. Equivalent to the HTML [code]readonly[/code] attribute.
+		</member>
+		<member name="required" type="bool" setter="set_required" getter="is_required" default="false">
+			Whether a value (or a checked state for checkbox/radio) is required for [method check_validity] to pass. Equivalent to the HTML [code]required[/code] attribute.
+		</member>
+		<member name="size_chars" type="int" setter="set_size_chars" getter="get_size_chars" default="20">
+			The visible width of a text-family input in average characters, which determines its default box width. Equivalent to the HTML [code]size[/code] attribute (default [code]20[/code]).
+		</member>
+		<member name="src" type="String" setter="set_src" getter="get_src" default="&quot;&quot;">
+			For [constant TYPE_IMAGE], the image to display. A [code]res://[/code] or [code]user://[/code] path is loaded through [ResourceLoader]; any other path is loaded as an image file. Equivalent to the HTML [code]src[/code] attribute.
+		</member>
+		<member name="step_value" type="int" setter="set_step_value" getter="get_step_value" default="1">
+			The increment for [constant TYPE_NUMBER] (spinner arrows and mouse wheel) and [constant TYPE_RANGE] (snapping); for [constant TYPE_TIME]/[constant TYPE_DATETIME_LOCAL] it is the drop-down's granularity in seconds. Values of zero or less are treated as [code]1[/code]. Equivalent to the HTML [code]step[/code] attribute.
+			[b]Note:[/b] Being an integer, this cannot express the fractional steps HTML allows (such as [code]step="0.01"[/code] for a price field) nor [code]step="any"[/code].
+		</member>
+		<member name="value" type="String" setter="set_value" getter="get_value" default="&quot;&quot;">
+			The current value of the input. For text-family inputs this is the edited text; for [constant TYPE_RANGE]/[constant TYPE_NUMBER] it is the numeric value as a string; for the date/time family it is the ISO value; for [constant TYPE_FILE] it is the fake path of the first selected file. Equivalent to the HTML [code]value[/code] property.
+		</member>
+	</members>
+	<signals>
+		<signal name="form_submitted">
+			<param index="0" name="data" type="Dictionary" />
+			<description>
+				Emitted by [method submit_form] (and when a [constant TYPE_SUBMIT] input is activated) with the collected [code]name[/code] → [code]value[/code] pairs of the form.
+			</description>
+		</signal>
+		<signal name="pressed">
+			<description>
+				Emitted when a button-like input ([constant TYPE_BUTTON], [constant TYPE_SUBMIT], [constant TYPE_RESET], [constant TYPE_IMAGE]) is clicked.
+			</description>
+		</signal>
+		<signal name="submitted">
+			<param index="0" name="value" type="String" />
+			<description>
+				Emitted when the user presses [kbd]Enter[/kbd] in a text-family input. Carries the current [member value].
+			</description>
+		</signal>
+		<signal name="toggled">
+			<param index="0" name="checked" type="bool" />
+			<description>
+				Emitted when a [constant TYPE_CHECKBOX] or [constant TYPE_RADIO] changes its checked state through user interaction. Carries the new [member checked] value.
+			</description>
+		</signal>
+		<signal name="value_changed">
+			<param index="0" name="value" type="String" />
+			<description>
+				Emitted when the [member value] changes, whether by editing text, dragging a range, stepping a number, or selecting a file. Carries the new value.
+			</description>
+		</signal>
+	</signals>
+	<constants>
+		<constant name="TYPE_TEXT" value="0" enum="Type">
+			A single-line text field ([code]&lt;input type="text"&gt;[/code]). The default type.
+		</constant>
+		<constant name="TYPE_PASSWORD" value="1" enum="Type">
+			A text field that masks its characters ([code]&lt;input type="password"&gt;[/code]).
+		</constant>
+		<constant name="TYPE_EMAIL" value="2" enum="Type">
+			A text field for an e-mail address, validated by [method check_validity] ([code]&lt;input type="email"&gt;[/code]). Honors [member multiple] for comma-separated addresses.
+		</constant>
+		<constant name="TYPE_URL" value="3" enum="Type">
+			A text field for a URL, validated by [method check_validity] ([code]&lt;input type="url"&gt;[/code]).
+		</constant>
+		<constant name="TYPE_TEL" value="4" enum="Type">
+			A text field for a telephone number, with no built-in format validation ([code]&lt;input type="tel"&gt;[/code]).
+		</constant>
+		<constant name="TYPE_SEARCH" value="5" enum="Type">
+			A text field styled as a search box ([code]&lt;input type="search"&gt;[/code]).
+		</constant>
+		<constant name="TYPE_NUMBER" value="6" enum="Type">
+			A numeric field; the mouse wheel steps the value by [member step_value], clamped to [member min_value]/[member max_value] ([code]&lt;input type="number"&gt;[/code]). A spinner appears at the right edge while the pointer is over the field, as in the browser; clicking its arrows steps the value by [member step_value], clamped to [member min_value]/[member max_value]. The room it needs is always reserved, so showing it never reflows the text.
+		</constant>
+		<constant name="TYPE_BUTTON" value="7" enum="Type">
+			A push button with no default action; emits [signal pressed] ([code]&lt;input type="button"&gt;[/code]).
+		</constant>
+		<constant name="TYPE_SUBMIT" value="8" enum="Type">
+			A button that submits the form via [method submit_form] (default value [code]Submit[/code]) ([code]&lt;input type="submit"&gt;[/code]).
+		</constant>
+		<constant name="TYPE_RESET" value="9" enum="Type">
+			A button that resets the form via [method reset_form] (default value [code]Reset[/code]) ([code]&lt;input type="reset"&gt;[/code]).
+		</constant>
+		<constant name="TYPE_IMAGE" value="10" enum="Type">
+			A graphical submit button using [member src] as its image ([code]&lt;input type="image"&gt;[/code]). Pressing it also opens the operating system's file picker so the image can be chosen, which sets [member src]; this is an authoring convenience with no equivalent in the browser.
+		</constant>
+		<constant name="TYPE_CHECKBOX" value="11" enum="Type">
+			A checkbox toggled by clicking ([code]&lt;input type="checkbox"&gt;[/code]). Native-drawn; ignores box CSS to match the browser.
+		</constant>
+		<constant name="TYPE_RADIO" value="12" enum="Type">
+			A radio button; only one per [member input_name] group may be checked ([code]&lt;input type="radio"&gt;[/code]). Native-drawn; ignores box CSS to match the browser.
+		</constant>
+		<constant name="TYPE_RANGE" value="13" enum="Type">
+			A slider between [member min_value] and [member max_value], stepped by [member step_value] and draggable ([code]&lt;input type="range"&gt;[/code]). The thumb uses the OS accent color.
+		</constant>
+		<constant name="TYPE_COLOR" value="14" enum="Type">
+			A color swatch button ([code]&lt;input type="color"&gt;[/code]). The [member value] is an HTML color string, always in [code]#rrggbb[/code] form. Pressing it opens a [ColorPicker] drop-down, and each change emits [signal value_changed].
+		</constant>
+		<constant name="TYPE_FILE" value="15" enum="Type">
+			A file picker with a "Choose File" button and a status label ([code]&lt;input type="file"&gt;[/code]); honors [member accept] and [member multiple]. Pressing the button opens the operating system's own file dialog, like the browser does, and falls back to Godot's [FileDialog] window on platforms without [constant DisplayServer.FEATURE_NATIVE_DIALOG_FILE].
+		</constant>
+		<constant name="TYPE_HIDDEN" value="16" enum="Type">
+			A control that holds a value but is not rendered ([code]&lt;input type="hidden"&gt;[/code]).
+		</constant>
+		<constant name="TYPE_DATE" value="17" enum="Type">
+			A date field with editable [code]mm/dd/yyyy[/code] segments; the [member value] is an ISO [code]yyyy-mm-dd[/code] string ([code]&lt;input type="date"&gt;[/code]).
+		</constant>
+		<constant name="TYPE_TIME" value="18" enum="Type">
+			A time field with editable [code]hh:mm AM/PM[/code] segments; the [member value] is a 24-hour [code]HH:mm[/code] string ([code]&lt;input type="time"&gt;[/code]).
+		</constant>
+		<constant name="TYPE_DATETIME_LOCAL" value="19" enum="Type">
+			A combined date and time field; the [member value] is an ISO [code]yyyy-mm-ddTHH:mm[/code] string ([code]&lt;input type="datetime-local"&gt;[/code]).
+		</constant>
+		<constant name="TYPE_MONTH" value="20" enum="Type">
+			A month field; the [member value] is an ISO [code]yyyy-mm[/code] string ([code]&lt;input type="month"&gt;[/code]).
+		</constant>
+		<constant name="TYPE_WEEK" value="21" enum="Type">
+			A week field; the [member value] is an ISO [code]yyyy-Www[/code] string ([code]&lt;input type="week"&gt;[/code]).
+		</constant>
+		<constant name="TYPE_MAX" value="22" enum="Type">
+			Represents the number of input types. Not a valid type.
+		</constant>
+		<constant name="LABEL_LEFT" value="0" enum="LabelPosition">
+			The label is placed to the left of the input, equivalent to [code]&lt;label&gt;Text&lt;input&gt;&lt;/label&gt;[/code].
+		</constant>
+		<constant name="LABEL_TOP" value="1" enum="LabelPosition">
+			The label is placed above the input, equivalent to [code]&lt;label&gt;Text&lt;br&gt;&lt;input&gt;&lt;/label&gt;[/code].
+		</constant>
+		<constant name="LABEL_RIGHT" value="2" enum="LabelPosition">
+			The label is placed to the right of the input, equivalent to [code]&lt;label&gt;&lt;input&gt;Text&lt;/label&gt;[/code].
+		</constant>
+		<constant name="LABEL_BOTTOM" value="3" enum="LabelPosition">
+			The label is placed below the input, equivalent to [code]&lt;label&gt;&lt;input&gt;&lt;br&gt;Text&lt;/label&gt;[/code].
+		</constant>
+	</constants>
+	<theme_items>
+		<theme_item name="font_color" data_type="color" type="Color" default="Color(0, 0, 0, 1)">
+			The default text color of the input and its [member label_text]. Acts as the user-agent base; overridden by the CSS [code]color[/code] property (see [method set_css]).
+		</theme_item>
+		<theme_item name="font_placeholder_color" data_type="color" type="Color" default="Color(0.458824, 0.458824, 0.458824, 1)">
+			The color of the [member placeholder] text shown in an empty text-family input.
+		</theme_item>
+		<theme_item name="selection_color" data_type="color" type="Color" default="Color(0.6, 0.8, 1, 0.4)">
+			The highlight color of selected text in a text-family input.
+		</theme_item>
+		<theme_item name="caret_color" data_type="color" type="Color" default="Color(0, 0, 0, 1)">
+			The color of the text caret (insertion cursor), like the CSS [code]caret-color[/code] property. Defaults to black.
+		</theme_item>
+		<theme_item name="accent_color" data_type="color" type="Color" default="Color(0, 0.47, 0.84, 1)">
+			The accent color used to fill a checked [constant TYPE_CHECKBOX]/[constant TYPE_RADIO] and the [constant TYPE_RANGE] thumb, like the CSS [code]accent-color[/code] property. Defaults to blue.
+		</theme_item>
+		<theme_item name="font" data_type="font" type="Font">
+			The font used for the input text and [member label_text]. When unset, the bundled Arial (matching Chromium's default form font) is used. Overridden by the CSS [code]font-family[/code] property.
+		</theme_item>
+		<theme_item name="font_size" data_type="font_size" type="int" default="13">
+			The base font size in pixels (Chromium's default is [code]13[/code]). A text input's intrinsic width scales with this. Overridden by the CSS [code]font-size[/code] property.
+		</theme_item>
+		<theme_item name="field" data_type="style" type="StyleBox">
+			The base [StyleBox] for text-field-like inputs (white background, thin gray border), approximating Chromium's native field. Author CSS box properties layer over it.
+		</theme_item>
+		<theme_item name="button" data_type="style" type="StyleBox">
+			The base [StyleBox] for button-like inputs ([constant TYPE_BUTTON], [constant TYPE_SUBMIT], [constant TYPE_RESET]), approximating Chromium's native button.
+		</theme_item>
+		<theme_item name="focus" data_type="style" type="StyleBox">
+			The [StyleBox] drawn over a focused control as the focus ring, like the browser's default [code]:focus[/code] outline.
+		</theme_item>
+		<theme_item name="hover" data_type="style" type="StyleBox">
+			The [StyleBox] drawn over the control while the mouse is over it, like the browser's [code]:hover[/code] state.
+		</theme_item>
+		<theme_item name="pressed" data_type="style" type="StyleBox">
+			The [StyleBox] drawn over the control while it is being pressed, like the browser's [code]:active[/code] state.
+		</theme_item>
+		<theme_item name="font_weight" data_type="constant" type="int" default="400">
+			The base font weight (100–900, [code]400[/code] = normal, [code]700[/code] = bold). Overridden by the CSS [code]font-weight[/code] property.
+		</theme_item>
+		<theme_item name="letter_spacing" data_type="constant" type="int" default="0">
+			The base letter spacing in pixels. Overridden by the CSS [code]letter-spacing[/code] property.
+		</theme_item>
+		<theme_item name="line_height" data_type="constant" type="int" default="0">
+			The base line height in pixels ([code]0[/code] = normal). Overridden by the CSS [code]line-height[/code] property.
+		</theme_item>
+		<theme_item name="text_align" data_type="constant" type="int" default="0">
+			The base horizontal text alignment ([code]0[/code] left, [code]1[/code] center, [code]2[/code] right, [code]3[/code] justify; see [enum HorizontalAlignment]). Overridden by the CSS [code]text-align[/code] property.
+		</theme_item>
+		<theme_item name="box_sizing" data_type="constant" type="int" default="0">
+			The base box-sizing model ([code]0[/code] content-box, [code]1[/code] border-box). Overridden by the CSS [code]box-sizing[/code] property.
+		</theme_item>
+		<theme_item name="label_font" data_type="font" type="Font">
+			The font of [member label_text], independent of the input text. When unset, the bundled Arial is used.
+		</theme_item>
+		<theme_item name="label_font_size" data_type="font_size" type="int" default="13">
+			The font size in pixels of [member label_text], independent of the input text.
+		</theme_item>
+		<theme_item name="label_font_color" data_type="color" type="Color" default="Color(0, 0, 0, 1)">
+			The color of [member label_text], independent of the input text color.
+		</theme_item>
+	</theme_items>
+</class>
