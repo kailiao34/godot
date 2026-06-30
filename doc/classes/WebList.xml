@@ -1,0 +1,343 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="WebList" inherits="Control" api_type="core" keywords="html css list ol ul marker" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		A CSS-like ordered or unordered list control.
+	</brief_description>
+	<description>
+		[WebList] displays items using browser-inspired [code]&lt;ul&gt;[/code] and [code]&lt;ol&gt;[/code] behavior. It supports ordered and unordered markers, list style position, list item values, per-item tooltips, hover styling, and theme properties that map to common CSS list, typography, spacing, border, and background concepts.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="add_item">
+			<return type="void" />
+			<param index="0" name="text" type="String" />
+			<description>
+				Adds a list item with the given text, similar to adding an [code]&lt;li&gt;[/code] element.
+			</description>
+		</method>
+		<method name="clear">
+			<return type="void" />
+			<description>
+				Removes all list items.
+			</description>
+		</method>
+		<method name="get_hovered_item" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the index of the item currently under the mouse cursor, or [code]-1[/code] if no item is hovered.
+			</description>
+		</method>
+		<method name="get_item_at_position" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="position" type="Vector2" />
+			<description>
+				Returns the item index at the local [param position], or [code]-1[/code] if the position is outside every item.
+			</description>
+		</method>
+		<method name="get_item_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the number of list items.
+			</description>
+		</method>
+		<method name="get_item_marker_text" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="idx" type="int" />
+			<description>
+				Returns the marker text rendered for the item at [param idx], after applying [member list_tag], [member list_style_type], [member start], [member reversed], item value, and item custom marker text.
+			</description>
+		</method>
+		<method name="get_item_rect" qualifiers="const">
+			<return type="Rect2" />
+			<param index="0" name="idx" type="int" />
+			<description>
+				Returns the local rectangle occupied by the item at [param idx]. This is useful for bridge tests and custom input handling.
+			</description>
+		</method>
+		<method name="remove_item">
+			<return type="void" />
+			<param index="0" name="idx" type="int" />
+			<description>
+				Removes the item at [param idx].
+			</description>
+		</method>
+		<method name="push_mouse_motion">
+			<return type="void" />
+			<param index="0" name="event" type="InputEventMouseMotion" />
+			<description>
+				Feeds a local mouse motion event into the list hover path. This is useful for headless bridge tests and custom input drivers that need to verify [code]:hover[/code]-style theme changes.
+			</description>
+		</method>
+		<method name="set_item_auto_translate_mode">
+			<return type="void" />
+			<param index="0" name="idx" type="int" />
+			<param index="1" name="mode" type="int" enum="Node.AutoTranslateMode" />
+			<description>
+				Sets how the item text participates in automatic translation.
+			</description>
+		</method>
+		<method name="get_item_auto_translate_mode" qualifiers="const">
+			<return type="int" enum="Node.AutoTranslateMode" />
+			<param index="0" name="idx" type="int" />
+			<description>
+				Returns the automatic translation mode for the item at [param idx].
+			</description>
+		</method>
+		<method name="set_item_count">
+			<return type="void" />
+			<param index="0" name="count" type="int" />
+			<description>
+				Resizes the item list. New items are created with empty text and default item properties.
+			</description>
+		</method>
+		<method name="set_item_custom_marker_text">
+			<return type="void" />
+			<param index="0" name="idx" type="int" />
+			<param index="1" name="marker" type="String" />
+			<description>
+				Sets custom marker text for one item. When non-empty, this overrides [member list_style_type] for that item.
+			</description>
+		</method>
+		<method name="get_item_custom_marker_text" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="idx" type="int" />
+			<description>
+				Returns the custom marker text for the item at [param idx].
+			</description>
+		</method>
+		<method name="set_item_metadata">
+			<return type="void" />
+			<param index="0" name="idx" type="int" />
+			<param index="1" name="metadata" type="Variant" />
+			<description>
+				Stores arbitrary metadata on the item at [param idx].
+			</description>
+		</method>
+		<method name="get_item_metadata" qualifiers="const">
+			<return type="Variant" />
+			<param index="0" name="idx" type="int" />
+			<description>
+				Returns the metadata stored on the item at [param idx].
+			</description>
+		</method>
+		<method name="set_item_text">
+			<return type="void" />
+			<param index="0" name="idx" type="int" />
+			<param index="1" name="text" type="String" />
+			<description>
+				Sets the text for the item at [param idx].
+			</description>
+		</method>
+		<method name="get_item_text" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="idx" type="int" />
+			<description>
+				Returns the text for the item at [param idx].
+			</description>
+		</method>
+		<method name="set_item_tooltip">
+			<return type="void" />
+			<param index="0" name="idx" type="int" />
+			<param index="1" name="tooltip" type="String" />
+			<description>
+				Sets the tooltip text shown when hovering the item at [param idx].
+			</description>
+		</method>
+		<method name="get_item_tooltip" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="idx" type="int" />
+			<description>
+				Returns the tooltip text for the item at [param idx].
+			</description>
+		</method>
+		<method name="set_item_value">
+			<return type="void" />
+			<param index="0" name="idx" type="int" />
+			<param index="1" name="value" type="int" />
+			<description>
+				Sets the explicit ordered-list value for the item at [param idx], equivalent to the HTML [code]li[value][/code] attribute. Enable it with [method set_item_value_enabled].
+			</description>
+		</method>
+		<method name="get_item_value" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="idx" type="int" />
+			<description>
+				Returns the explicit ordered-list value for the item at [param idx].
+			</description>
+		</method>
+		<method name="set_item_value_enabled">
+			<return type="void" />
+			<param index="0" name="idx" type="int" />
+			<param index="1" name="enabled" type="bool" />
+			<description>
+				Enables or disables the explicit ordered-list value for the item at [param idx].
+			</description>
+		</method>
+		<method name="is_item_value_enabled" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="idx" type="int" />
+			<description>
+				Returns whether the item at [param idx] uses its explicit value.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="box_sizing" type="int" setter="set_box_sizing" getter="get_box_sizing" enum="WebList.BoxSizing" default="0">
+			Controls whether size calculations follow CSS [code]content-box[/code] or [code]border-box[/code] semantics.
+		</member>
+		<member name="language" type="String" setter="set_language" getter="get_language" default="&quot;&quot;">
+			Language code used for text shaping and line-breaking.
+		</member>
+		<member name="list_style_position" type="int" setter="set_list_style_position" getter="get_list_style_position" enum="WebList.ListStylePosition" default="0">
+			Controls marker placement, equivalent to CSS [code]list-style-position[/code].
+		</member>
+		<member name="list_style_type" type="int" setter="set_list_style_type" getter="get_list_style_type" enum="WebList.ListStyleType" default="0">
+			Controls marker generation, equivalent to CSS [code]list-style-type[/code].
+		</member>
+		<member name="list_tag" type="int" setter="set_list_tag" getter="get_list_tag" enum="WebList.ListTag" default="0">
+			Selects unordered [code]&lt;ul&gt;[/code] or ordered [code]&lt;ol&gt;[/code] behavior.
+		</member>
+		<member name="opacity" type="float" setter="set_opacity" getter="get_opacity" default="1.0">
+			Opacity multiplier for text, markers, and styleboxes, equivalent to CSS [code]opacity[/code].
+		</member>
+		<member name="ordered_type" type="int" setter="set_ordered_type" getter="get_ordered_type" enum="WebList.OrderedType" default="0">
+			Sets ordered-list numbering style, matching HTML [code]ol[type][/code].
+		</member>
+		<member name="reversed" type="bool" setter="set_reversed" getter="is_reversed" default="false">
+			If [code]true[/code], ordered markers count downward, equivalent to HTML [code]ol[reversed][/code].
+		</member>
+		<member name="start" type="int" setter="set_start" getter="get_start" default="1">
+			First ordered-list number, equivalent to HTML [code]ol[start][/code].
+		</member>
+		<member name="text_alignment" type="int" setter="set_text_alignment" getter="get_text_alignment" enum="HorizontalAlignment" default="0">
+			Horizontal alignment of item text, equivalent to CSS [code]text-align[/code].
+		</member>
+		<member name="text_direction" type="int" setter="set_text_direction" getter="get_text_direction" enum="Control.TextDirection" default="0">
+			Base text direction.
+		</member>
+	</members>
+	<theme_items>
+		<theme_item name="font_color" data_type="color" type="Color" default="Color(0, 0, 0, 1)">
+			Item text color, equivalent to CSS [code]color[/code].
+		</theme_item>
+		<theme_item name="font_hover_color" data_type="color" type="Color" default="Color(0, 0, 0, 1)">
+			Item text color while the mouse hovers an item, equivalent to a [code]:hover[/code] color rule.
+		</theme_item>
+		<theme_item name="font_outline_color" data_type="color" type="Color" default="Color(0, 0, 0, 0)">
+			Text outline color used by Godot rendering. This has no direct CSS equivalent unless used to approximate text stroke.
+		</theme_item>
+		<theme_item name="marker_color" data_type="color" type="Color" default="Color(0, 0, 0, 1)">
+			Marker color, equivalent to styling [code]::marker[/code] with [code]color[/code].
+		</theme_item>
+		<theme_item name="marker_hover_color" data_type="color" type="Color" default="Color(0, 0, 0, 1)">
+			Marker color while the mouse hovers an item, equivalent to a [code]li:hover::marker[/code] color rule.
+		</theme_item>
+		<theme_item name="font_weight" data_type="constant" type="int" default="400">
+			Text weight requested by the theme, equivalent to CSS [code]font-weight[/code]. The current renderer uses the assigned [theme_item font]; bridge tests should verify the effective face.
+		</theme_item>
+		<theme_item name="item_spacing" data_type="constant" type="int" default="0">
+			Extra vertical spacing between items in pixels.
+		</theme_item>
+		<theme_item name="letter_spacing" data_type="constant" type="int" default="0">
+			Additional spacing between letters in pixels, equivalent to CSS [code]letter-spacing[/code]. The current renderer exposes the value for theme parity tests.
+		</theme_item>
+		<theme_item name="line_height" data_type="constant" type="int" default="0">
+			Item line height in pixels. If [code]0[/code], WebList uses a browser-like normal line height based on the current font size.
+		</theme_item>
+		<theme_item name="margin_block_end" data_type="constant" type="int" default="16">
+			Block-end list margin in pixels, equivalent to CSS [code]margin-block-end[/code].
+		</theme_item>
+		<theme_item name="margin_block_start" data_type="constant" type="int" default="16">
+			Block-start list margin in pixels, equivalent to CSS [code]margin-block-start[/code].
+		</theme_item>
+		<theme_item name="marker_font_weight" data_type="constant" type="int" default="400">
+			Marker weight requested by the theme, equivalent to CSS [code]::marker { font-weight: ... }[/code].
+		</theme_item>
+		<theme_item name="marker_gap" data_type="constant" type="int" default="8">
+			Distance between marker and item text, equivalent to browser marker/content separation.
+		</theme_item>
+		<theme_item name="marker_min_width" data_type="constant" type="int" default="24">
+			Minimum marker box width in pixels.
+		</theme_item>
+		<theme_item name="outline_size" data_type="constant" type="int" default="0">
+			Text outline size in pixels.
+		</theme_item>
+		<theme_item name="padding_block_end" data_type="constant" type="int" default="0">
+			Block-end padding in pixels, equivalent to CSS [code]padding-block-end[/code].
+		</theme_item>
+		<theme_item name="padding_block_start" data_type="constant" type="int" default="0">
+			Block-start padding in pixels, equivalent to CSS [code]padding-block-start[/code].
+		</theme_item>
+		<theme_item name="padding_inline_end" data_type="constant" type="int" default="0">
+			Inline-end padding in pixels, equivalent to CSS [code]padding-inline-end[/code].
+		</theme_item>
+		<theme_item name="padding_inline_start" data_type="constant" type="int" default="40">
+			Inline-start padding in pixels, equivalent to CSS [code]padding-inline-start[/code] for default [code]ul[/code] and [code]ol[/code] elements.
+		</theme_item>
+		<theme_item name="text_align" data_type="constant" type="int" default="0">
+			Theme-level text alignment hint, equivalent to CSS [code]text-align[/code]. The node property [member text_alignment] controls the active alignment.
+		</theme_item>
+		<theme_item name="font" data_type="font" type="Font">
+			Font used for item text, equivalent to CSS [code]font-family[/code].
+		</theme_item>
+		<theme_item name="marker_font" data_type="font" type="Font">
+			Font used for marker text, equivalent to CSS [code]::marker { font-family: ... }[/code].
+		</theme_item>
+		<theme_item name="font_size" data_type="font_size" type="int">
+			Font size used for item text, equivalent to CSS [code]font-size[/code].
+		</theme_item>
+		<theme_item name="marker_font_size" data_type="font_size" type="int">
+			Font size used for marker text, equivalent to CSS [code]::marker { font-size: ... }[/code].
+		</theme_item>
+		<theme_item name="focus" data_type="style" type="StyleBox">
+			Focus outline stylebox.
+		</theme_item>
+		<theme_item name="hover" data_type="style" type="StyleBox">
+			Container stylebox drawn while any item is hovered. Use it for CSS [code]:hover[/code] background, border, padding, and box-shadow effects.
+		</theme_item>
+		<theme_item name="item_hover" data_type="style" type="StyleBox">
+			Item row stylebox drawn for the hovered item. Use it for per-[code]li:hover[/code] background, border, padding, and box-shadow effects.
+		</theme_item>
+		<theme_item name="item_normal" data_type="style" type="StyleBox">
+			Item row stylebox drawn for every non-hovered item.
+		</theme_item>
+		<theme_item name="marker_hover" data_type="style" type="StyleBox">
+			Marker box stylebox drawn for the hovered item's marker. Use it for [code]li:hover::marker[/code]-adjacent background, border, padding, and box-shadow effects.
+		</theme_item>
+		<theme_item name="marker_normal" data_type="style" type="StyleBox">
+			Marker box stylebox drawn for every non-hovered marker.
+		</theme_item>
+		<theme_item name="normal" data_type="style" type="StyleBox">
+			Main list container stylebox. Use it for CSS [code]background[/code], [code]border[/code], [code]padding[/code], [code]box-sizing[/code]-adjacent sizing, and [code]box-shadow[/code] effects.
+		</theme_item>
+	</theme_items>
+	<constants>
+		<constant name="LIST_TAG_UNORDERED" value="0" enum="ListTag">
+			Unordered list behavior, equivalent to HTML [code]&lt;ul&gt;[/code].
+		</constant>
+		<constant name="LIST_TAG_ORDERED" value="1" enum="ListTag">
+			Ordered list behavior, equivalent to HTML [code]&lt;ol&gt;[/code].
+		</constant>
+		<constant name="ORDERED_TYPE_DECIMAL" value="0" enum="OrderedType" />
+		<constant name="ORDERED_TYPE_DECIMAL_LEADING_ZERO" value="1" enum="OrderedType" />
+		<constant name="ORDERED_TYPE_LOWER_ALPHA" value="2" enum="OrderedType" />
+		<constant name="ORDERED_TYPE_UPPER_ALPHA" value="3" enum="OrderedType" />
+		<constant name="ORDERED_TYPE_LOWER_ROMAN" value="4" enum="OrderedType" />
+		<constant name="ORDERED_TYPE_UPPER_ROMAN" value="5" enum="OrderedType" />
+		<constant name="LIST_STYLE_TYPE_DISC" value="0" enum="ListStyleType" />
+		<constant name="LIST_STYLE_TYPE_CIRCLE" value="1" enum="ListStyleType" />
+		<constant name="LIST_STYLE_TYPE_SQUARE" value="2" enum="ListStyleType" />
+		<constant name="LIST_STYLE_TYPE_DECIMAL" value="3" enum="ListStyleType" />
+		<constant name="LIST_STYLE_TYPE_DECIMAL_LEADING_ZERO" value="4" enum="ListStyleType" />
+		<constant name="LIST_STYLE_TYPE_LOWER_ALPHA" value="5" enum="ListStyleType" />
+		<constant name="LIST_STYLE_TYPE_UPPER_ALPHA" value="6" enum="ListStyleType" />
+		<constant name="LIST_STYLE_TYPE_LOWER_ROMAN" value="7" enum="ListStyleType" />
+		<constant name="LIST_STYLE_TYPE_UPPER_ROMAN" value="8" enum="ListStyleType" />
+		<constant name="LIST_STYLE_TYPE_NONE" value="9" enum="ListStyleType" />
+		<constant name="LIST_STYLE_POSITION_OUTSIDE" value="0" enum="ListStylePosition" />
+		<constant name="LIST_STYLE_POSITION_INSIDE" value="1" enum="ListStylePosition" />
+		<constant name="BOX_SIZING_CONTENT_BOX" value="0" enum="BoxSizing" />
+		<constant name="BOX_SIZING_BORDER_BOX" value="1" enum="BoxSizing" />
+	</constants>
+</class>

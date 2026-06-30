@@ -98,6 +98,7 @@
 #include "scene/gui/tree.h"
 #include "scene/gui/video_stream_player.h"
 #include "scene/gui/virtual_joystick.h"
+#include "scene/gui/web_list.h"
 #include "scene/main/canvas_item.h"
 #include "scene/main/canvas_layer.h"
 #include "scene/main/http_request.h"
@@ -520,6 +521,7 @@ void register_scene_types() {
 
 	GDREGISTER_CLASS(TextureProgressBar);
 	GDREGISTER_CLASS(ItemList);
+	GDREGISTER_CLASS(WebList);
 
 	GDREGISTER_CLASS(LineEdit);
 	GDREGISTER_CLASS(VideoStreamPlayer);

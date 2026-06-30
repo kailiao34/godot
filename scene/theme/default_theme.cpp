@@ -391,6 +391,44 @@ void fill_default_theme(Ref<Theme> &theme, const Ref<Font> &default_font, const 
 	theme->set_constant("shadow_outline_size", "Label", Math::round(1 * scale));
 	theme->set_constant("line_spacing", "Label", Math::round(3 * scale));
 
+	// WebList keeps browser-like defaults instead of matching the editor's
+	// widget palette. The list text and marker colors intentionally match
+	// CSS initial color on a transparent background.
+	theme->set_stylebox(CoreStringName(normal), "WebList", memnew(StyleBoxEmpty));
+	theme->set_stylebox(SceneStringName(hover), "WebList", memnew(StyleBoxEmpty));
+	theme->set_stylebox("focus", "WebList", focus);
+	theme->set_stylebox("item_normal", "WebList", memnew(StyleBoxEmpty));
+	theme->set_stylebox("item_hover", "WebList", memnew(StyleBoxEmpty));
+	theme->set_stylebox("marker_normal", "WebList", memnew(StyleBoxEmpty));
+	theme->set_stylebox("marker_hover", "WebList", memnew(StyleBoxEmpty));
+
+	theme->set_font(SceneStringName(font), "WebList", Ref<Font>());
+	theme->set_font("marker_font", "WebList", Ref<Font>());
+	theme->set_font_size(SceneStringName(font_size), "WebList", -1);
+	theme->set_font_size("marker_font_size", "WebList", -1);
+
+	theme->set_color(SceneStringName(font_color), "WebList", Color(0, 0, 0));
+	theme->set_color("font_hover_color", "WebList", Color(0, 0, 0));
+	theme->set_color("marker_color", "WebList", Color(0, 0, 0));
+	theme->set_color("marker_hover_color", "WebList", Color(0, 0, 0));
+	theme->set_color("font_outline_color", "WebList", Color(0, 0, 0, 0));
+
+	theme->set_constant("outline_size", "WebList", 0);
+	theme->set_constant("padding_inline_start", "WebList", Math::round(40 * scale));
+	theme->set_constant("padding_inline_end", "WebList", 0);
+	theme->set_constant("padding_block_start", "WebList", 0);
+	theme->set_constant("padding_block_end", "WebList", 0);
+	theme->set_constant("margin_block_start", "WebList", Math::round(default_font_size * scale));
+	theme->set_constant("margin_block_end", "WebList", Math::round(default_font_size * scale));
+	theme->set_constant("marker_gap", "WebList", Math::round(8 * scale));
+	theme->set_constant("marker_min_width", "WebList", Math::round(24 * scale));
+	theme->set_constant("item_spacing", "WebList", 0);
+	theme->set_constant("line_height", "WebList", 0);
+	theme->set_constant("letter_spacing", "WebList", 0);
+	theme->set_constant("font_weight", "WebList", 400);
+	theme->set_constant("marker_font_weight", "WebList", 400);
+	theme->set_constant("text_align", "WebList", 0);
+
 	theme->set_type_variation("HeaderSmall", "Label");
 	theme->set_font_size(SceneStringName(font_size), "HeaderSmall", default_font_size + 4);
 
