@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="WebTextArea" inherits="Control" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		A control that mirrors the HTML [code]&lt;textarea&gt;[/code] element, including its attributes, default styling and editing behavior.
+	</brief_description>
+	<description>
+		[WebTextArea] reproduces an HTML [code]&lt;textarea&gt;[/code] as a Godot [Control]. Its intrinsic size follows Chromium: [member cols] columns of the font's column width plus room for a vertical scrollbar, and [member rows] lines of the [code]normal[/code] line height, inside a 1px border and 2px padding. [member Control.size] corresponds to the CSS border box.
+		The default font is the browser's default fixed-pitch family for [member font_locale] (for example MingLiU for zh-TW and Consolas for English on Windows). Editing happens in an embedded [TextEdit]; scrollbars, the scroll corner, the resize grip and the focus ring are drawn to match the browser.
+		[b]Attributes.[/b] [member cols], [member rows], [member wrap_mode], [member disabled], [member readonly], [member placeholder], [member autofocus], [member maxlength], [member minlength] and [member required] behave like their HTML counterparts. [member maxlength] limits what the user can type or paste, counted in UTF-16 code units with each line break counting once.
+		[b]Forms.[/b] [method get_form_value] returns the submitted value (wrapped lines become line breaks when [member wrap_mode] is [constant WRAP_HARD]); [method reset] restores [member default_value]; [method get_validity] reports the constraint-validation state.
+		[b]Styling.[/b] Use [method set_css] for author declarations (box, typography, [code]resize[/code]).
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="apply_autofocus">
+			<return type="bool" />
+			<description>
+				Focuses the field when [member autofocus] is set and the control can take focus, as a page load does. Returns [code]true[/code] when focus is requested.
+			</description>
+		</method>
+		<method name="check_validity" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] when the value satisfies [member required], [member maxlength] and [member minlength].
+			</description>
+		</method>
+		<method name="clear_css">
+			<return type="void" />
+			<description>
+				Removes every author declaration set with [method set_css] or [method set_css_text].
+			</description>
+		</method>
+		<method name="get_editor" qualifiers="const">
+			<return type="TextEdit" />
+			<description>
+				Returns the embedded editor.
+			</description>
+		</method>
+		<method name="get_form_value" qualifiers="const">
+			<return type="String" />
+			<description>
+				Returns the value a form submits. With [constant WRAP_HARD], every on-screen wrap becomes a line break.
+			</description>
+		</method>
+		<method name="get_test_metrics" qualifiers="const">
+			<return type="Dictionary" />
+			<description>
+				Returns the resolved box model (size, border box, border, padding, font size, line height, column width, colors, scrollbar state) for comparison with the browser.
+			</description>
+		</method>
+		<method name="get_validity" qualifiers="const">
+			<return type="Dictionary" />
+			<description>
+				Returns the constraint-validation state: [code]value_missing[/code], [code]too_long[/code], [code]too_short[/code], [code]length[/code] (UTF-16 code units) and [code]valid[/code]. A disabled or readonly field is never invalid; [code]too_long[/code] and [code]too_short[/code] only apply after the user edited the value.
+			</description>
+		</method>
+		<method name="reset">
+			<return type="void" />
+			<description>
+				Restores [member default_value], like an HTML form reset.
+			</description>
+		</method>
+		<method name="set_css">
+			<param index="0" name="property" type="String" />
+			<param index="1" name="value" type="String" />
+			<return type="void" />
+			<description>
+				Applies one author declaration. Supported: [code]background-color[/code], [code]color[/code], [code]border[/code], [code]border-width[/code], [code]border-*-width[/code], [code]border-color[/code], [code]border-style[/code], [code]border-radius[/code], [code]padding[/code], [code]padding-*[/code], [code]box-sizing[/code], [code]width[/code], [code]height[/code], [code]font-size[/code], [code]font-family[/code], [code]font-weight[/code], [code]line-height[/code], [code]letter-spacing[/code], [code]text-align[/code] and [code]resize[/code]. An empty value removes the declaration.
+			</description>
+		</method>
+		<method name="set_css_text">
+			<param index="0" name="css" type="String" />
+			<return type="void" />
+			<description>
+				Applies an inline-style string such as [code]"font-size:16px;padding:4px"[/code].
+			</description>
+		</method>
+		<method name="simulate_type">
+			<param index="0" name="text" type="String" />
+			<return type="void" />
+			<description>
+				Types [param text] at the caret through the same rules as the keyboard, including [member maxlength].
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="autofocus" type="bool" setter="set_autofocus" getter="has_autofocus" default="false">
+			Focus the field when it becomes ready, like the HTML [code]autofocus[/code] attribute. See [method apply_autofocus].
+		</member>
+		<member name="cols" type="int" setter="set_cols" getter="get_cols" default="20">
+			Visible width in average character columns. Values below 1 fall back to 20.
+		</member>
+		<member name="default_value" type="String" setter="set_default_value" getter="get_default_value" default="&quot;&quot;">
+			The markup content that [method reset] restores.
+		</member>
+		<member name="disabled" type="bool" setter="set_disabled" getter="is_disabled" default="false">
+			The field cannot be focused or edited and is painted with the browser's disabled colors.
+		</member>
+		<member name="focus_mode" type="int" setter="set_focus_mode" getter="get_focus_mode" overrides="Control" enum="Control.FocusMode" default="2" />
+		<member name="font_locale" type="String" setter="set_font_locale" getter="get_font_locale" default="&quot;&quot;">
+			Locale whose default fixed-pitch font the field uses (the browser's [code]monospace[/code]). Empty follows the OS locale.
+		</member>
+		<member name="input_height" type="int" setter="set_input_height" getter="get_input_height" default="-1">
+			Explicit CSS [code]height[/code] in pixels, or [code]-1[/code] for the [member rows]-based size.
+		</member>
+		<member name="input_name" type="String" setter="set_input_name" getter="get_input_name" default="&quot;&quot;">
+			The HTML [code]name[/code] attribute.
+		</member>
+		<member name="input_width" type="int" setter="set_input_width" getter="get_input_width" default="-1">
+			Explicit CSS [code]width[/code] in pixels, or [code]-1[/code] for the [member cols]-based size.
+		</member>
+		<member name="maxlength" type="int" setter="set_maxlength" getter="get_maxlength" default="-1">
+			Maximum value length the user can enter, in UTF-16 code units; [code]-1[/code] for none.
+		</member>
+		<member name="minlength" type="int" setter="set_minlength" getter="get_minlength" default="-1">
+			Minimum length of a user-edited, non-empty value; [code]-1[/code] for none.
+		</member>
+		<member name="placeholder" type="String" setter="set_placeholder" getter="get_placeholder" default="&quot;&quot;">
+			Hint text shown while the value is empty.
+		</member>
+		<member name="readonly" type="bool" setter="set_readonly" getter="is_readonly" default="false">
+			The value cannot be edited, but the field can be focused and its text selected.
+		</member>
+		<member name="required" type="bool" setter="set_required" getter="is_required" default="false">
+			An empty value fails [method check_validity].
+		</member>
+		<member name="resize_mode" type="int" setter="set_resize_mode" getter="get_resize_mode" enum="WebTextArea.ResizeMode" default="1">
+			Which edges the resize grip drags (CSS [code]resize[/code]).
+		</member>
+		<member name="rows" type="int" setter="set_rows" getter="get_rows" default="2">
+			Visible height in lines. Values below 1 fall back to 2.
+		</member>
+		<member name="value" type="String" setter="set_value" getter="get_value" default="&quot;&quot;">
+			The current value. Setting it replaces the text without recording an edit.
+		</member>
+		<member name="wrap_mode" type="int" setter="set_wrap_mode" getter="get_wrap_mode" enum="WebTextArea.WrapMode" default="0">
+			The HTML [code]wrap[/code] attribute.
+		</member>
+	</members>
+	<signals>
+		<signal name="user_resized">
+			<param index="0" name="size" type="Vector2" />
+			<description>
+				Emitted while the user drags the resize grip, with the new border-box size.
+			</description>
+		</signal>
+		<signal name="value_changed">
+			<param index="0" name="value" type="String" />
+			<description>
+				Emitted after the user edits the value, and after [method reset].
+			</description>
+		</signal>
+	</signals>
+	<constants>
+		<constant name="WRAP_SOFT" value="0" enum="WrapMode">
+			Lines wrap on screen; the submitted value keeps only the user's own line breaks.
+		</constant>
+		<constant name="WRAP_HARD" value="1" enum="WrapMode">
+			Lines wrap on screen and the wraps are submitted as line breaks.
+		</constant>
+		<constant name="WRAP_OFF" value="2" enum="WrapMode">
+			Lines do not wrap; long lines scroll horizontally.
+		</constant>
+		<constant name="RESIZE_NONE" value="0" enum="ResizeMode">
+			No resize grip.
+		</constant>
+		<constant name="RESIZE_BOTH" value="1" enum="ResizeMode">
+			The grip resizes both dimensions (browser default).
+		</constant>
+		<constant name="RESIZE_HORIZONTAL" value="2" enum="ResizeMode">
+			The grip resizes the width only.
+		</constant>
+		<constant name="RESIZE_VERTICAL" value="3" enum="ResizeMode">
+			The grip resizes the height only.
+		</constant>
+	</constants>
+	<theme_items>
+		<theme_item name="caret_color" data_type="color" type="Color" default="Color(0, 0, 0, 1)">
+			Caret color.
+		</theme_item>
+		<theme_item name="font_color" data_type="color" type="Color" default="Color(0, 0, 0, 1)">
+			Text color.
+		</theme_item>
+		<theme_item name="font_placeholder_color" data_type="color" type="Color" default="Color(0.458824, 0.458824, 0.458824, 1)">
+			Placeholder color.
+		</theme_item>
+		<theme_item name="selection_color" data_type="color" type="Color" default="Color(0.6, 0.8, 1, 0.4)">
+			Selection highlight color.
+		</theme_item>
+		<theme_item name="font_size" data_type="font_size" type="int" default="13">
+			Font size; [code]13[/code] stands for the browser's 13.3333px.
+		</theme_item>
+		<theme_item name="font" data_type="font" type="Font">
+			Font; empty uses the locale's default fixed-pitch font.
+		</theme_item>
+		<theme_item name="focus" data_type="style" type="StyleBox">
+			Focus ring drawn over the field while it has focus.
+		</theme_item>
+	</theme_items>
+</class>
