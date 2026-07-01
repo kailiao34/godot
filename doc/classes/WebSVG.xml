@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="WebSVG" inherits="Control" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		A control that renders a scriptable SVG document inside a CSS-faithful box.
+	</brief_description>
+	<description>
+		[WebSVG] mimics the HTML [code]&lt;svg&gt;[/code] element. The node's rect [member Control.size] is the SVG [code]width[/code]/[code]height[/code]: the SVG content is drawn at 1:1 scale and, when the node is resized, it is clipped rather than scaled — exactly like an [code]&lt;svg&gt;[/code] with no [code]viewBox[/code]. The element is wrapped by the CSS box model: [code]border[/code], [code]background[/code], [code]box-shadow[/code], [code]border-radius[/code] and padding come from the [theme_item style] theme item (a [StyleBoxCSS]), while [theme_item box_sizing] controls whether the node size is the content box or border box. With the default [code]content-box[/code] sizing, border and padding grow outward from the node size; with [code]border-box[/code] they are drawn inside it and the content area shrinks.
+		Markup assigned through [member svg_markup] (or [method parse_svg]) is rendered verbatim, so [code]&lt;defs&gt;[/code], gradients and filters survive; editing the scriptable child [WebSVGElement] nodes switches rendering to the serialized DOM.
+		Default values reproduce the browser user-agent stylesheet for [code]&lt;svg&gt;[/code]: a transparent background, no border, no shadow, no padding and content-box sizing.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_border_box" qualifiers="const">
+			<return type="Rect2" />
+			<description>
+				Returns the border box in local coordinates. Equals [code]Rect2(Vector2(), size)[/code] under [code]border-box[/code] sizing; under [code]content-box[/code] it grows beyond the node size by the border and padding.
+			</description>
+		</method>
+		<method name="parse_svg">
+			<return type="int" enum="Error" />
+			<param index="0" name="markup" type="String" />
+			<description>
+				Parses a full SVG markup string (including inline [code]style[/code] and any [code]&lt;defs&gt;[/code]/gradients), sets the node size from the [code]width[/code]/[code]height[/code] attributes, applies box CSS from the root [code]&lt;svg style="…"&gt;[/code], rebuilds the scriptable child DOM, and renders the markup verbatim.
+			</description>
+		</method>
+		<method name="to_svg_string" qualifiers="const">
+			<return type="String" />
+			<description>
+				Serializes the current document back to an SVG markup string.
+			</description>
+		</method>
+		<method name="get_computed_style" qualifiers="const">
+			<return type="Dictionary" />
+			<description>
+				Returns a dictionary describing the fully resolved box geometry and paint values: the [code]border_box[/code], [code]padding_box[/code] and [code]content_box[/code] rectangles, the resolved per-side [code]border_width[/code], [code]border_color[/code] and [code]border_style[/code] arrays (ordered left, top, right, bottom), [code]padding[/code], [code]corner_radius[/code] (ordered top-left, top-right, bottom-right, bottom-left), [code]background_color[/code], [code]background_clip[/code], [code]box_sizing[/code] and the list of [code]box_shadows[/code].
+				This is the canonical "what the engine actually computed" snapshot used by the headless testing bridge to compare against a real browser's [code]getComputedStyle()[/code].
+			</description>
+		</method>
+		<method name="get_content_box" qualifiers="const">
+			<return type="Rect2" />
+			<description>
+				Returns the content box: the border box inset by the border widths and then by the padding. This is where the SVG content is drawn.
+			</description>
+		</method>
+		<method name="get_padding_box" qualifiers="const">
+			<return type="Rect2" />
+			<description>
+				Returns the padding box: the border box inset by the border widths.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="svg_markup" type="String" setter="set_svg_markup" getter="get_svg_markup">
+			Editor-only entry point for pasting SVG markup. Setting it calls [method parse_svg]; reading it returns [method to_svg_string]. Not stored in the scene — the child [WebSVGElement] nodes are the persisted source of truth.
+		</member>
+		<member name="animations_enabled" type="bool" setter="set_animations_enabled" getter="are_animations_enabled" default="true">
+			Whether child [WebSVGAnimation] elements play on the canvas. During playback the typed child DOM is serialized every frame with the current animated values (re-rasterizing only when the document changed), so raw markup extras such as [code]&lt;defs&gt;[/code] are not rendered while an animation is active. Serialized markup always includes the SMIL tags regardless of this setting.
+		</member>
+	</members>
+	<theme_items>
+		<theme_item name="box_sizing" data_type="constant" type="int" default="0">
+			How the node size maps to the box. Numeric values are: [code]0[/code] = [code]Content Box[/code] / CSS [code]content-box[/code] (CSS default; the node size is the SVG content area and border + padding grow outward), [code]1[/code] = [code]Border Box[/code] / CSS [code]border-box[/code] (the node size is the border box and the content area shrinks). CSS [code]box-sizing[/code].
+		</theme_item>
+		<theme_item name="padding_bottom" data_type="constant" type="int" default="0">
+			Inner spacing in pixels between the bottom border and the SVG content. CSS [code]padding-bottom[/code].
+		</theme_item>
+		<theme_item name="padding_left" data_type="constant" type="int" default="0">
+			Inner spacing in pixels between the left border and the SVG content. CSS [code]padding-left[/code].
+		</theme_item>
+		<theme_item name="padding_right" data_type="constant" type="int" default="0">
+			Inner spacing in pixels between the right border and the SVG content. CSS [code]padding-right[/code].
+		</theme_item>
+		<theme_item name="padding_top" data_type="constant" type="int" default="0">
+			Inner spacing in pixels between the top border and the SVG content. CSS [code]padding-top[/code].
+		</theme_item>
+		<theme_item name="default_fill" data_type="color" type="Color" default="Color(0, 0, 0, 1)">
+			Fill color applied to child SVG shapes that do not set their own [code]fill[/code]. Matches the SVG default of opaque black.
+		</theme_item>
+		<theme_item name="default_stroke" data_type="color" type="Color" default="Color(0, 0, 0, 0)">
+			Stroke color applied to child SVG shapes that do not set their own [code]stroke[/code]. Matches the SVG default of no stroke (transparent).
+		</theme_item>
+		<theme_item name="default_stroke_width" data_type="constant" type="int" default="1">
+			Stroke width in pixels applied to child SVG shapes that do not set their own [code]stroke-width[/code]. Matches the SVG default of [code]1[/code].
+		</theme_item>
+		<theme_item name="style" data_type="style" type="StyleBox">
+			The [StyleBoxCSS] that paints this element's CSS box: background, border, border-radius, padding and box-shadow. The WebSVG [theme_item box_sizing] theme constant controls whether the node size is interpreted as the content box or border box. The default reproduces the browser user-agent stylesheet for [code]&lt;svg&gt;[/code] (transparent background, no border, no shadow and zero padding).
+		</theme_item>
+	</theme_items>
+</class>

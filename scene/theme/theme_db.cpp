@@ -329,20 +329,22 @@ ThemeContext *ThemeDB::get_nearest_theme_context(Node *p_for_node) const {
 
 // Theme item binding.
 
-void ThemeDB::bind_class_item(Theme::DataType p_data_type, const StringName &p_class_name, const StringName &p_prop_name, const StringName &p_item_name, ThemeItemSetter p_setter) {
+void ThemeDB::bind_class_item(Theme::DataType p_data_type, const StringName &p_class_name, const StringName &p_prop_name, const StringName &p_item_name, ThemeItemSetter p_setter, PropertyHint p_hint, const String &p_hint_string) {
 	ERR_FAIL_COND_MSG(theme_item_binds[p_class_name].has(p_prop_name), vformat("Failed to bind theme item '%s' in class '%s': already bound", p_prop_name, p_class_name));
 
 	ThemeItemBind bind;
 	bind.data_type = p_data_type;
 	bind.class_name = p_class_name;
 	bind.item_name = p_item_name;
+	bind.hint = p_hint;
+	bind.hint_string = p_hint_string;
 	bind.setter = p_setter;
 
 	theme_item_binds[p_class_name][p_prop_name] = bind;
 	theme_item_binds_list[p_class_name].push_back(bind);
 }
 
-void ThemeDB::bind_class_external_item(Theme::DataType p_data_type, const StringName &p_class_name, const StringName &p_prop_name, const StringName &p_item_name, const StringName &p_type_name, ThemeItemSetter p_setter) {
+void ThemeDB::bind_class_external_item(Theme::DataType p_data_type, const StringName &p_class_name, const StringName &p_prop_name, const StringName &p_item_name, const StringName &p_type_name, ThemeItemSetter p_setter, PropertyHint p_hint, const String &p_hint_string) {
 	ERR_FAIL_COND_MSG(theme_item_binds[p_class_name].has(p_prop_name), vformat("Failed to bind theme item '%s' in class '%s': already bound", p_prop_name, p_class_name));
 
 	ThemeItemBind bind;
@@ -351,6 +353,8 @@ void ThemeDB::bind_class_external_item(Theme::DataType p_data_type, const String
 	bind.item_name = p_item_name;
 	bind.type_name = p_type_name;
 	bind.external = true;
+	bind.hint = p_hint;
+	bind.hint_string = p_hint_string;
 	bind.setter = p_setter;
 
 	theme_item_binds[p_class_name][p_prop_name] = bind;

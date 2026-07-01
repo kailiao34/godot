@@ -478,7 +478,9 @@ void Control::_get_property_list(List<PropertyInfo> *p_list) const {
 				if (data.theme_constant_override.has(E.item_name)) {
 					usage |= PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_CHECKED;
 				}
-				p_list->push_back(PropertyInfo(Variant::INT, PNAME("theme_override_constants") + String("/") + E.item_name, PROPERTY_HINT_RANGE, "-16384,16384", usage));
+				const PropertyHint hint = E.hint == PROPERTY_HINT_NONE ? PROPERTY_HINT_RANGE : E.hint;
+				const String hint_string = E.hint == PROPERTY_HINT_NONE ? String("-16384,16384") : E.hint_string;
+				p_list->push_back(PropertyInfo(Variant::INT, PNAME("theme_override_constants") + String("/") + E.item_name, hint, hint_string, usage));
 			} break;
 
 			case Theme::DATA_TYPE_FONT: {

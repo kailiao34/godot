@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="WebSVGPolyline" inherits="WebSVGElement" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		An SVG [code]&lt;polyline&gt;[/code] element.
+	</brief_description>
+	<description>
+		An open sequence of connected line segments in the scriptable SVG DOM. See [WebSVGPolygon] for the closed variant and [WebSVGElement] for the shared properties.
+	</description>
+	<tutorials>
+	</tutorials>
+	<members>
+		<member name="points" type="PackedVector2Array" setter="set_points" getter="get_points" default="PackedVector2Array()">
+			The vertices, serialized to the SVG [code]points[/code] attribute.
+		</member>
+	</members>
+</class>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="WebSVGGroup" inherits="WebSVGElement" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		An SVG [code]&lt;g&gt;[/code] (group) element.
+	</brief_description>
+	<description>
+		A container in the scriptable SVG DOM. Its child [WebSVGElement] nodes are serialized inside the group's [code]&lt;g&gt;[/code] tag, inheriting the group's [member WebSVGElement.transform] and presentation attributes. See [WebSVGElement] for the shared properties.
+	</description>
+	<tutorials>
+	</tutorials>
+</class>

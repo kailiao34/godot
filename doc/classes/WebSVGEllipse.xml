@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="WebSVGEllipse" inherits="WebSVGElement" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		An SVG [code]&lt;ellipse&gt;[/code] element.
+	</brief_description>
+	<description>
+		An ellipse in the scriptable SVG DOM. See [WebSVGElement] for the shared fill, stroke and transform properties.
+	</description>
+	<tutorials>
+	</tutorials>
+	<members>
+		<member name="center" type="Vector2" setter="set_center" getter="get_center" default="Vector2(0, 0)">
+			Center point, SVG [code]cx[/code] and [code]cy[/code].
+		</member>
+		<member name="radii" type="Vector2" setter="set_radii" getter="get_radii" default="Vector2(0, 0)">
+			Horizontal ([member Vector2.x], SVG [code]rx[/code]) and vertical ([member Vector2.y], SVG [code]ry[/code]) radii.
+		</member>
+	</members>
+</class>

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="WebSVGLine" inherits="WebSVGElement" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		An SVG [code]&lt;line&gt;[/code] element.
+	</brief_description>
+	<description>
+		A straight line in the scriptable SVG DOM. A line is only visible when stroked (see [member WebSVGElement.stroke]). See [WebSVGElement] for the shared properties.
+	</description>
+	<tutorials>
+	</tutorials>
+	<members>
+		<member name="from" type="Vector2" setter="set_from" getter="get_from" default="Vector2(0, 0)">
+			Start point, SVG [code]x1[/code] and [code]y1[/code].
+		</member>
+		<member name="to" type="Vector2" setter="set_to" getter="get_to" default="Vector2(0, 0)">
+			End point, SVG [code]x2[/code] and [code]y2[/code].
+		</member>
+	</members>
+</class>

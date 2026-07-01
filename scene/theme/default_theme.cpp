@@ -35,6 +35,7 @@
 #include "scene/resources/font.h"
 #include "scene/resources/gradient_texture.h"
 #include "scene/resources/image_texture.h"
+#include "scene/resources/style_box_css.h"
 #include "scene/resources/style_box_flat.h"
 #include "scene/resources/style_box_line.h"
 #include "scene/resources/theme.h"
@@ -132,6 +133,18 @@ void fill_default_theme(Ref<Theme> &theme, const Ref<Font> &default_font, const 
 
 	// Panel
 	theme->set_stylebox(SceneStringName(panel), "Panel", make_flat_stylebox(style_normal_color, 0, 0, 0, 0));
+
+	// WebSVG. Defaults reproduce the browser UA stylesheet for `<svg>`:
+	// transparent background, no border, no shadow, no padding, content-box sizing.
+	theme->set_stylebox("style", "WebSVG", memnew(StyleBoxCSS));
+	theme->set_color("default_fill", "WebSVG", Color(0, 0, 0, 1)); // SVG default fill: black.
+	theme->set_color("default_stroke", "WebSVG", Color(0, 0, 0, 0)); // SVG default stroke: none.
+	theme->set_constant("default_stroke_width", "WebSVG", 1); // SVG default stroke-width: 1.
+	theme->set_constant("box_sizing", "WebSVG", 0); // 0 = content-box (CSS default), 1 = border-box.
+	theme->set_constant("padding_left", "WebSVG", 0);
+	theme->set_constant("padding_top", "WebSVG", 0);
+	theme->set_constant("padding_right", "WebSVG", 0);
+	theme->set_constant("padding_bottom", "WebSVG", 0);
 
 	// Button
 

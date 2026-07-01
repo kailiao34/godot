@@ -77,6 +77,8 @@
 #include "scene/gui/option_button.h"
 #include "scene/gui/panel.h"
 #include "scene/gui/panel_container.h"
+#include "scene/gui/web_svg.h"
+#include "scene/gui/web_svg_element.h"
 #include "scene/gui/popup_menu.h"
 #include "scene/gui/progress_bar.h"
 #include "scene/gui/reference_rect.h"
@@ -154,8 +156,10 @@
 #include "scene/resources/skeleton_profile.h"
 #include "scene/resources/sky.h"
 #include "scene/resources/style_box.h"
+#include "scene/resources/style_box_css.h"
 #include "scene/resources/style_box_flat.h"
 #include "scene/resources/style_box_line.h"
+#include "scene/resources/web_box_shadow.h"
 #include "scene/resources/style_box_texture.h"
 #include "scene/resources/surface_tool.h"
 #include "scene/resources/syntax_highlighter.h"
@@ -488,6 +492,18 @@ void register_scene_types() {
 	GDREGISTER_CLASS(CheckButton);
 	GDREGISTER_CLASS(LinkButton);
 	GDREGISTER_CLASS(Panel);
+	GDREGISTER_CLASS(WebSVG);
+	GDREGISTER_ABSTRACT_CLASS(WebSVGElement);
+	GDREGISTER_CLASS(WebSVGRect);
+	GDREGISTER_CLASS(WebSVGCircle);
+	GDREGISTER_CLASS(WebSVGEllipse);
+	GDREGISTER_CLASS(WebSVGLine);
+	GDREGISTER_CLASS(WebSVGPolyline);
+	GDREGISTER_CLASS(WebSVGPolygon);
+	GDREGISTER_CLASS(WebSVGPath);
+	GDREGISTER_CLASS(WebSVGText);
+	GDREGISTER_CLASS(WebSVGGroup);
+	GDREGISTER_CLASS(WebSVGAnimation);
 	GDREGISTER_CLASS(ButtonGroup);
 
 	OS::get_singleton()->yield(); // may take time to init
@@ -1004,6 +1020,8 @@ void register_scene_types() {
 	GDREGISTER_CLASS(StyleBoxEmpty);
 	GDREGISTER_CLASS(StyleBoxTexture);
 	GDREGISTER_CLASS(StyleBoxFlat);
+	GDREGISTER_CLASS(WebBoxShadow);
+	GDREGISTER_CLASS(StyleBoxCSS);
 	GDREGISTER_CLASS(StyleBoxLine);
 	GDREGISTER_CLASS(Theme);
 

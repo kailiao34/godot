@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="WebSVGPath" inherits="WebSVGElement" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		An SVG [code]&lt;path&gt;[/code] element.
+	</brief_description>
+	<description>
+		An arbitrary path in the scriptable SVG DOM, defined by an SVG path-data string. See [WebSVGElement] for the shared fill, stroke and transform properties.
+	</description>
+	<tutorials>
+	</tutorials>
+	<members>
+		<member name="d" type="String" setter="set_d" getter="get_d" default="&quot;&quot;">
+			The SVG path data, for example [code]M10 10 H 90 V 90 H 10 Z[/code]. SVG [code]d[/code].
+		</member>
+	</members>
+</class>

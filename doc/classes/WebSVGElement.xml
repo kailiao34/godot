@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="WebSVGElement" inherits="Node" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		Base class for the scriptable SVG DOM used by [WebSVG].
+	</brief_description>
+	<description>
+		[WebSVGElement] is the base of the scriptable SVG document object model. Each element is a [Node] parented under a [WebSVG] (or a [WebSVGGroup]) and carries the SVG presentation attributes shared by every shape: fill, stroke, opacity and transform. Subclasses such as [WebSVGRect] or [WebSVGCircle] add their own geometry. Elements are serialized to SVG markup in document (child) order when the owning [WebSVG] renders.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="to_svg" qualifiers="const">
+			<return type="String" />
+			<description>
+				Serializes this element (and, for [WebSVGGroup], its children) to SVG markup.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="element_id" type="String" setter="set_element_id" getter="get_element_id" default="&quot;&quot;">
+			The SVG [code]id[/code] attribute emitted for this element.
+		</member>
+		<member name="fill" type="Color" setter="set_fill" getter="get_fill" default="Color(0, 0, 0, 1)">
+			Fill color. SVG [code]fill[/code]. Defaults to opaque black, matching the SVG default. Ignored when [member fill_none] is [code]true[/code].
+		</member>
+		<member name="fill_none" type="bool" setter="set_fill_none" getter="is_fill_none" default="false">
+			If [code]true[/code], the shape is not filled. SVG [code]fill="none"[/code].
+		</member>
+		<member name="fill_opacity" type="float" setter="set_fill_opacity" getter="get_fill_opacity" default="1.0">
+			Opacity of the fill, from 0 to 1. SVG [code]fill-opacity[/code].
+		</member>
+		<member name="opacity" type="float" setter="set_opacity" getter="get_opacity" default="1.0">
+			Overall opacity of the element, from 0 to 1. SVG [code]opacity[/code].
+		</member>
+		<member name="stroke" type="Color" setter="set_stroke" getter="get_stroke" default="Color(0, 0, 0, 1)">
+			Stroke (outline) color. SVG [code]stroke[/code]. Setting this also enables the stroke.
+		</member>
+		<member name="stroke_enabled" type="bool" setter="set_stroke_enabled" getter="is_stroke_enabled" default="false">
+			Whether the shape is stroked. Disabled by default, matching the SVG default of no stroke.
+		</member>
+		<member name="stroke_opacity" type="float" setter="set_stroke_opacity" getter="get_stroke_opacity" default="1.0">
+			Opacity of the stroke, from 0 to 1. SVG [code]stroke-opacity[/code].
+		</member>
+		<member name="stroke_width" type="float" setter="set_stroke_width" getter="get_stroke_width" default="1.0">
+			Stroke width in pixels. SVG [code]stroke-width[/code]. Defaults to 1, matching the SVG default.
+		</member>
+		<member name="transform" type="String" setter="set_transform_string" getter="get_transform_string" default="&quot;&quot;">
+			Raw SVG [code]transform[/code] attribute, for example [code]rotate(45 60 60)[/code].
+		</member>
+		<member name="extra_style" type="String" setter="set_extra_style" getter="get_extra_style" default="&quot;&quot;">
+			Additional inline CSS declarations (such as [code]stroke-linecap[/code] or [code]stroke-dasharray[/code]) preserved verbatim when this element is serialized. Populated for presentation properties not modeled as typed members, so round-tripping markup keeps them.
+		</member>
+	</members>
+</class>

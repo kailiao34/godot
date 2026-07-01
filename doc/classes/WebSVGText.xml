@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="WebSVGText" inherits="WebSVGElement" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		An SVG [code]&lt;text&gt;[/code] element.
+	</brief_description>
+	<description>
+		A run of text in the scriptable SVG DOM. The text is filled with [member WebSVGElement.fill]. See [WebSVGElement] for the shared properties.
+	</description>
+	<tutorials>
+	</tutorials>
+	<members>
+		<member name="font_family" type="String" setter="set_font_family" getter="get_font_family" default="&quot;&quot;">
+			The font family name. SVG [code]font-family[/code]. When empty, the renderer's default font is used.
+		</member>
+		<member name="font_size" type="float" setter="set_font_size" getter="get_font_size" default="16.0">
+			Font size in pixels. SVG [code]font-size[/code].
+		</member>
+		<member name="position" type="Vector2" setter="set_text_position" getter="get_text_position" default="Vector2(0, 0)">
+			Text anchor position, SVG [code]x[/code] and [code]y[/code] (the baseline origin).
+		</member>
+		<member name="text" type="String" setter="set_text" getter="get_text" default="&quot;&quot;">
+			The text content.
+		</member>
+	</members>
+</class>

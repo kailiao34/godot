@@ -1,0 +1,259 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="StyleBoxCSS" inherits="StyleBox" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		A [StyleBox] that reproduces the CSS box model.
+	</brief_description>
+	<description>
+		[StyleBoxCSS] paints the CSS box of an HTML element: [code]background[/code], [code]border[/code] (per-side width, color and style), [code]border-radius[/code] (with elliptical corners), [code]padding[/code], [code]box-sizing[/code] and [code]box-shadow[/code]. It is used by [WebSVG] as its [theme_item WebSVG.style] theme item, but can decorate any control that draws a [StyleBox].
+		All defaults match the browser user-agent stylesheet for an [code]&lt;svg&gt;[/code] element: a transparent background, no border, no shadow, zero padding and content-box sizing.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_border_color" qualifiers="const">
+			<return type="Color" />
+			<param index="0" name="side" type="int" enum="Side" />
+			<description>
+				Returns the border color of the given side.
+			</description>
+		</method>
+		<method name="get_border_style" qualifiers="const">
+			<return type="int" enum="StyleBoxCSS.BorderStyle" />
+			<param index="0" name="side" type="int" enum="Side" />
+			<description>
+				Returns the border style of the given side.
+			</description>
+		</method>
+		<method name="get_border_width" qualifiers="const">
+			<return type="float" />
+			<param index="0" name="side" type="int" enum="Side" />
+			<description>
+				Returns the border width of the given side, in pixels.
+			</description>
+		</method>
+		<method name="get_content_box" qualifiers="const">
+			<return type="Rect2" />
+			<param index="0" name="border_box" type="Rect2" />
+			<description>
+				Returns the content box for the given border box: inset by the effective border widths and then by the padding.
+			</description>
+		</method>
+		<method name="get_corner_radius" qualifiers="const">
+			<return type="Vector2" />
+			<param index="0" name="corner" type="int" enum="Corner" />
+			<description>
+				Returns the radius of the given corner. [member Vector2.x] is the horizontal radius and [member Vector2.y] the vertical radius.
+			</description>
+		</method>
+		<method name="get_padding" qualifiers="const">
+			<return type="float" />
+			<param index="0" name="side" type="int" enum="Side" />
+			<description>
+				Returns the padding of the given side, in pixels.
+			</description>
+		</method>
+		<method name="get_padding_box" qualifiers="const">
+			<return type="Rect2" />
+			<param index="0" name="border_box" type="Rect2" />
+			<description>
+				Returns the padding box for the given border box: inset by the effective border widths.
+			</description>
+		</method>
+		<method name="set_border_color_all">
+			<return type="void" />
+			<param index="0" name="color" type="Color" />
+			<description>
+				Sets the border color of all four sides at once.
+			</description>
+		</method>
+		<method name="set_border_color">
+			<return type="void" />
+			<param index="0" name="side" type="int" enum="Side" />
+			<param index="1" name="color" type="Color" />
+			<description>
+				Sets the border color of the given side.
+			</description>
+		</method>
+		<method name="set_border_style_all">
+			<return type="void" />
+			<param index="0" name="style" type="int" enum="StyleBoxCSS.BorderStyle" />
+			<description>
+				Sets the border style of all four sides at once.
+			</description>
+		</method>
+		<method name="set_border_style">
+			<return type="void" />
+			<param index="0" name="side" type="int" enum="Side" />
+			<param index="1" name="style" type="int" enum="StyleBoxCSS.BorderStyle" />
+			<description>
+				Sets the border style of the given side.
+			</description>
+		</method>
+		<method name="set_border_width_all">
+			<return type="void" />
+			<param index="0" name="width" type="float" />
+			<description>
+				Sets the border width of all four sides at once, in pixels.
+			</description>
+		</method>
+		<method name="set_border_width">
+			<return type="void" />
+			<param index="0" name="side" type="int" enum="Side" />
+			<param index="1" name="width" type="float" />
+			<description>
+				Sets the border width of the given side, in pixels.
+			</description>
+		</method>
+		<method name="set_corner_radius_all">
+			<return type="void" />
+			<param index="0" name="radius" type="Vector2" />
+			<description>
+				Sets the radius of all four corners at once.
+			</description>
+		</method>
+		<method name="set_corner_radius">
+			<return type="void" />
+			<param index="0" name="corner" type="int" enum="Corner" />
+			<param index="1" name="radius" type="Vector2" />
+			<description>
+				Sets the radius of the given corner. [member Vector2.x] is the horizontal radius and [member Vector2.y] the vertical radius.
+			</description>
+		</method>
+		<method name="set_padding_all">
+			<return type="void" />
+			<param index="0" name="padding" type="float" />
+			<description>
+				Sets the padding of all four sides at once, in pixels.
+			</description>
+		</method>
+		<method name="set_padding">
+			<return type="void" />
+			<param index="0" name="side" type="int" enum="Side" />
+			<param index="1" name="padding" type="float" />
+			<description>
+				Sets the padding of the given side, in pixels.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="background_clip" type="int" setter="set_background_clip" getter="get_background_clip" enum="StyleBoxCSS.BackgroundClip" default="0">
+			The area the background is painted into: the border box, padding box or content box. CSS [code]background-clip[/code]. Defaults to border box.
+		</member>
+		<member name="background_color" type="Color" setter="set_background_color" getter="get_background_color" default="Color(0, 0, 0, 0)">
+			Fill color of the box background. CSS [code]background-color[/code]. Defaults to transparent.
+		</member>
+		<member name="background_gradient" type="Gradient" setter="set_background_gradient" getter="get_background_gradient">
+			Optional linear gradient painted over [member background_color], clipped like the background. CSS [code]background-image: linear-gradient(...)[/code] (or [code]repeating-linear-gradient[/code] with [member background_gradient_repeating]).
+		</member>
+		<member name="background_gradient_angle" type="float" setter="set_background_gradient_angle" getter="get_background_gradient_angle" default="180.0">
+			Gradient direction in CSS degrees: [code]0[/code] points up ([code]to top[/code]), [code]90[/code] points right, [code]180[/code] (the CSS default [code]to bottom[/code]) points down.
+		</member>
+		<member name="background_gradient_repeating" type="bool" setter="set_background_gradient_repeating" getter="is_background_gradient_repeating" default="false">
+			If [code]true[/code], the gradient tiles every [member background_gradient_period] pixels along its axis, like CSS [code]repeating-linear-gradient()[/code].
+		</member>
+		<member name="background_gradient_period" type="float" setter="set_background_gradient_period" getter="get_background_gradient_period" default="0.0">
+			Tile length in pixels for a repeating gradient. [code]0[/code] uses the full gradient line (no visible repetition).
+		</member>
+		<member name="border_color_bottom" type="Color" setter="set_border_color" getter="get_border_color" default="Color(0, 0, 0, 1)">
+			Color of the bottom border edge. CSS [code]border-bottom-color[/code].
+		</member>
+		<member name="border_color_left" type="Color" setter="set_border_color" getter="get_border_color" default="Color(0, 0, 0, 1)">
+			Color of the left border edge. CSS [code]border-left-color[/code].
+		</member>
+		<member name="border_color_right" type="Color" setter="set_border_color" getter="get_border_color" default="Color(0, 0, 0, 1)">
+			Color of the right border edge. CSS [code]border-right-color[/code].
+		</member>
+		<member name="border_color_top" type="Color" setter="set_border_color" getter="get_border_color" default="Color(0, 0, 0, 1)">
+			Color of the top border edge. CSS [code]border-top-color[/code].
+		</member>
+		<member name="border_style_bottom" type="int" setter="set_border_style" getter="get_border_style" enum="StyleBoxCSS.BorderStyle" default="0">
+			Line style of the bottom border edge. CSS [code]border-bottom-style[/code]. Defaults to none.
+		</member>
+		<member name="border_style_left" type="int" setter="set_border_style" getter="get_border_style" enum="StyleBoxCSS.BorderStyle" default="0">
+			Line style of the left border edge. CSS [code]border-left-style[/code]. Defaults to none.
+		</member>
+		<member name="border_style_right" type="int" setter="set_border_style" getter="get_border_style" enum="StyleBoxCSS.BorderStyle" default="0">
+			Line style of the right border edge. CSS [code]border-right-style[/code]. Defaults to none.
+		</member>
+		<member name="border_style_top" type="int" setter="set_border_style" getter="get_border_style" enum="StyleBoxCSS.BorderStyle" default="0">
+			Line style of the top border edge. CSS [code]border-top-style[/code]. Defaults to none.
+		</member>
+		<member name="border_width_bottom" type="float" setter="set_border_width" getter="get_border_width" default="0.0">
+			Width in pixels of the bottom border edge. CSS [code]border-bottom-width[/code]. A border is only painted when its style is not none.
+		</member>
+		<member name="border_width_left" type="float" setter="set_border_width" getter="get_border_width" default="0.0">
+			Width in pixels of the left border edge. CSS [code]border-left-width[/code]. A border is only painted when its style is not none.
+		</member>
+		<member name="border_width_right" type="float" setter="set_border_width" getter="get_border_width" default="0.0">
+			Width in pixels of the right border edge. CSS [code]border-right-width[/code]. A border is only painted when its style is not none.
+		</member>
+		<member name="border_width_top" type="float" setter="set_border_width" getter="get_border_width" default="0.0">
+			Width in pixels of the top border edge. CSS [code]border-top-width[/code]. A border is only painted when its style is not none.
+		</member>
+		<member name="box_sizing" type="int" setter="set_box_sizing" getter="get_box_sizing" enum="StyleBoxCSS.BoxSizing" default="0">
+			Whether the declared size refers to the content box or the border box. Numeric values are: [code]0[/code] = [constant BOX_SIZING_CONTENT_BOX] / CSS [code]content-box[/code] (the CSS default), [code]1[/code] = [constant BOX_SIZING_BORDER_BOX] / CSS [code]border-box[/code]. CSS [code]box-sizing[/code].
+		</member>
+		<member name="box_shadows" type="WebBoxShadow[]" setter="set_box_shadows" getter="get_box_shadows" default="[]">
+			Ordered list of drop and inner shadows, painted first-on-top like CSS. Each entry is a [WebBoxShadow]. CSS [code]box-shadow[/code].
+		</member>
+		<member name="corner_detail" type="int" setter="set_corner_detail" getter="get_corner_detail" default="8">
+			Number of segments used to tessellate each rounded corner. Higher values produce smoother corners at a small performance cost.
+		</member>
+		<member name="corner_radius_bottom_left" type="Vector2" setter="set_corner_radius" getter="get_corner_radius" default="Vector2(0, 0)">
+			Horizontal ([member Vector2.x]) and vertical ([member Vector2.y]) radius of the bottom-left corner, enabling elliptical corners. CSS [code]border-bottom-left-radius[/code].
+		</member>
+		<member name="corner_radius_bottom_right" type="Vector2" setter="set_corner_radius" getter="get_corner_radius" default="Vector2(0, 0)">
+			Horizontal ([member Vector2.x]) and vertical ([member Vector2.y]) radius of the bottom-right corner, enabling elliptical corners. CSS [code]border-bottom-right-radius[/code].
+		</member>
+		<member name="corner_radius_top_left" type="Vector2" setter="set_corner_radius" getter="get_corner_radius" default="Vector2(0, 0)">
+			Horizontal ([member Vector2.x]) and vertical ([member Vector2.y]) radius of the top-left corner, enabling elliptical corners. CSS [code]border-top-left-radius[/code].
+		</member>
+		<member name="corner_radius_top_right" type="Vector2" setter="set_corner_radius" getter="get_corner_radius" default="Vector2(0, 0)">
+			Horizontal ([member Vector2.x]) and vertical ([member Vector2.y]) radius of the top-right corner, enabling elliptical corners. CSS [code]border-top-right-radius[/code].
+		</member>
+		<member name="padding_bottom" type="float" setter="set_padding" getter="get_padding" default="0.0">
+			Inner spacing in pixels between the bottom border and the content. CSS [code]padding-bottom[/code].
+		</member>
+		<member name="padding_left" type="float" setter="set_padding" getter="get_padding" default="0.0">
+			Inner spacing in pixels between the left border and the content. CSS [code]padding-left[/code].
+		</member>
+		<member name="padding_right" type="float" setter="set_padding" getter="get_padding" default="0.0">
+			Inner spacing in pixels between the right border and the content. CSS [code]padding-right[/code].
+		</member>
+		<member name="padding_top" type="float" setter="set_padding" getter="get_padding" default="0.0">
+			Inner spacing in pixels between the top border and the content. CSS [code]padding-top[/code].
+		</member>
+	</members>
+	<constants>
+		<constant name="BACKGROUND_CLIP_BORDER_BOX" value="0" enum="BackgroundClip">
+			The background is painted under the border, filling the entire border box. CSS [code]background-clip: border-box[/code].
+		</constant>
+		<constant name="BACKGROUND_CLIP_PADDING_BOX" value="1" enum="BackgroundClip">
+			The background is clipped to the padding box, stopping at the inner border edge. CSS [code]background-clip: padding-box[/code].
+		</constant>
+		<constant name="BACKGROUND_CLIP_CONTENT_BOX" value="2" enum="BackgroundClip">
+			The background is clipped to the content box. CSS [code]background-clip: content-box[/code].
+		</constant>
+		<constant name="BORDER_STYLE_NONE" value="0" enum="BorderStyle">
+			No border is drawn and its width is treated as zero. CSS [code]border-style: none[/code].
+		</constant>
+		<constant name="BORDER_STYLE_SOLID" value="1" enum="BorderStyle">
+			A single solid line. CSS [code]border-style: solid[/code].
+		</constant>
+		<constant name="BORDER_STYLE_DASHED" value="2" enum="BorderStyle">
+			A dashed line. CSS [code]border-style: dashed[/code].
+		</constant>
+		<constant name="BORDER_STYLE_DOTTED" value="3" enum="BorderStyle">
+			A dotted line. CSS [code]border-style: dotted[/code].
+		</constant>
+		<constant name="BORDER_STYLE_DOUBLE" value="4" enum="BorderStyle">
+			Two parallel solid lines. CSS [code]border-style: double[/code].
+		</constant>
+		<constant name="BOX_SIZING_CONTENT_BOX" value="0" enum="BoxSizing">
+			The declared size sets the content box; border and padding are added outside it. The CSS default. CSS [code]box-sizing: content-box[/code].
+		</constant>
+		<constant name="BOX_SIZING_BORDER_BOX" value="1" enum="BoxSizing">
+			The declared size sets the border box; border and padding are drawn inside it. CSS [code]box-sizing: border-box[/code].
+		</constant>
+	</constants>
+</class>

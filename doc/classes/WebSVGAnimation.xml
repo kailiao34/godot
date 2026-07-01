@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="WebSVGAnimation" inherits="WebSVGElement" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		A SMIL animation ([code]&lt;animate&gt;[/code] / [code]&lt;animateTransform&gt;[/code]) attached to its parent SVG element.
+	</brief_description>
+	<description>
+		[WebSVGAnimation] represents one SMIL animation element. Parent it under any [WebSVGElement] shape (or [WebSVGGroup]) inside a [WebSVG]: the animation is serialized inside the parent's tag, so exported markup plays natively in a browser, and the owning [WebSVG] evaluates it every frame for live playback on the canvas (in the editor and at runtime; toggle with [member WebSVG.animations_enabled]).
+		Values are SMIL value strings: numbers ([code]0.4[/code]), lengths ([code]12px[/code]), colors ([code]#C2552A[/code]) or, for [constant KIND_ANIMATE_TRANSFORM], transform argument lists such as [code]0 60 60[/code] for a rotation. Numeric and color values interpolate linearly (or stepwise with [constant CALC_MODE_DISCRETE]); anything else steps discretely.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="evaluate" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="time" type="float" />
+			<description>
+				Returns the animated value at [param time] seconds since playback started, or an empty string when the animation has no effect at that time (before [member begin_delay], or after its last repeat without [member fill_freeze]).
+			</description>
+		</method>
+		<method name="target_attribute" qualifiers="const">
+			<return type="String" />
+			<description>
+				Returns the attribute this animation drives: [member attribute_name], or [code]"transform"[/code] for [constant KIND_ANIMATE_TRANSFORM].
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="animation_kind" type="int" setter="set_animation_kind" getter="get_animation_kind" enum="WebSVGAnimation.AnimationKind" default="0">
+			Whether this serializes as [code]&lt;animate&gt;[/code] or [code]&lt;animateTransform&gt;[/code].
+		</member>
+		<member name="attribute_name" type="String" setter="set_attribute_name" getter="get_attribute_name" default="&quot;opacity&quot;">
+			The SVG attribute to animate ([code]opacity[/code], [code]r[/code], [code]fill[/code], ...). SMIL [code]attributeName[/code]. Ignored for [constant KIND_ANIMATE_TRANSFORM].
+		</member>
+		<member name="svg_transform_type" type="int" setter="set_svg_transform_type" getter="get_svg_transform_type" enum="WebSVGAnimation.SVGTransformType" default="0">
+			The transform function animated by [code]&lt;animateTransform&gt;[/code]. SMIL [code]type[/code].
+		</member>
+		<member name="from_value" type="String" setter="set_from_value" getter="get_from_value" default="&quot;&quot;">
+			Start value. SMIL [code]from[/code]. Ignored when [member values] is set.
+		</member>
+		<member name="to_value" type="String" setter="set_to_value" getter="get_to_value" default="&quot;&quot;">
+			End value. SMIL [code]to[/code]. Ignored when [member values] is set.
+		</member>
+		<member name="values" type="String" setter="set_values" getter="get_values" default="&quot;&quot;">
+			Semicolon-separated value list, e.g. [code]1;0;1[/code]. SMIL [code]values[/code]. Overrides [member from_value]/[member to_value] when non-empty.
+		</member>
+		<member name="key_times" type="String" setter="set_key_times" getter="get_key_times" default="&quot;&quot;">
+			Semicolon-separated 0..1 progress list matching [member values]. SMIL [code]keyTimes[/code].
+		</member>
+		<member name="duration" type="float" setter="set_duration" getter="get_duration" default="1.0">
+			One iteration's length in seconds. SMIL [code]dur[/code].
+		</member>
+		<member name="begin_delay" type="float" setter="set_begin_delay" getter="get_begin_delay" default="0.0">
+			Delay before the first iteration, in seconds. SMIL [code]begin[/code].
+		</member>
+		<member name="repeat_count" type="float" setter="set_repeat_count" getter="get_repeat_count" default="0.0">
+			Number of iterations; [code]0[/code] repeats forever ([code]repeatCount="indefinite"[/code]).
+		</member>
+		<member name="fill_freeze" type="bool" setter="set_fill_freeze" getter="is_fill_freeze" default="false">
+			If [code]true[/code], the last value is kept after the final repeat. SMIL [code]fill="freeze"[/code].
+		</member>
+		<member name="svg_calc_mode" type="int" setter="set_svg_calc_mode" getter="get_svg_calc_mode" enum="WebSVGAnimation.SVGCalcMode" default="0">
+			Interpolation mode. SMIL [code]calcMode[/code] ([code]linear[/code] or [code]discrete[/code]).
+		</member>
+		<member name="additive" type="bool" setter="set_additive" getter="is_additive" default="false">
+			If [code]true[/code], the animated transform is combined with the element's base transform instead of replacing it. SMIL [code]additive="sum"[/code].
+		</member>
+	</members>
+	<constants>
+		<constant name="KIND_ANIMATE" value="0" enum="AnimationKind">
+			Serializes as [code]&lt;animate&gt;[/code], driving [member attribute_name].
+		</constant>
+		<constant name="KIND_ANIMATE_TRANSFORM" value="1" enum="AnimationKind">
+			Serializes as [code]&lt;animateTransform&gt;[/code], driving the [code]transform[/code] attribute.
+		</constant>
+		<constant name="TRANSFORM_TRANSLATE" value="0" enum="SVGTransformType">
+			Animates [code]translate(x y)[/code].
+		</constant>
+		<constant name="TRANSFORM_SCALE" value="1" enum="SVGTransformType">
+			Animates [code]scale(x y)[/code].
+		</constant>
+		<constant name="TRANSFORM_ROTATE" value="2" enum="SVGTransformType">
+			Animates [code]rotate(angle cx cy)[/code].
+		</constant>
+		<constant name="TRANSFORM_SKEW_X" value="3" enum="SVGTransformType">
+			Animates [code]skewX(angle)[/code].
+		</constant>
+		<constant name="TRANSFORM_SKEW_Y" value="4" enum="SVGTransformType">
+			Animates [code]skewY(angle)[/code].
+		</constant>
+		<constant name="CALC_MODE_LINEAR" value="0" enum="SVGCalcMode">
+			Values interpolate linearly between list entries.
+		</constant>
+		<constant name="CALC_MODE_DISCRETE" value="1" enum="SVGCalcMode">
+			Values step from one list entry to the next without interpolation.
+		</constant>
+	</constants>
+</class>

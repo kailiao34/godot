@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="WebBoxShadow" inherits="Resource" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		A single CSS [code]box-shadow[/code] layer.
+	</brief_description>
+	<description>
+		[WebBoxShadow] describes one shadow of a CSS [code]box-shadow[/code] list, used by [StyleBoxCSS]. It mirrors the CSS syntax [code]&lt;offset-x&gt; &lt;offset-y&gt; &lt;blur-radius&gt; &lt;spread-radius&gt; &lt;color&gt; [inset][/code]. Multiple shadows are stacked in document order, first-on-top.
+	</description>
+	<tutorials>
+	</tutorials>
+	<members>
+		<member name="blur_radius" type="float" setter="set_blur_radius" getter="get_blur_radius" default="0.0">
+			Gaussian blur radius in pixels — the third length of a CSS [code]box-shadow[/code]. A value of [code]0[/code] produces a sharp shadow. Cannot be negative.
+		</member>
+		<member name="color" type="Color" setter="set_color" getter="get_color" default="Color(0, 0, 0, 1)">
+			Shadow color, alpha included. The color component of a CSS [code]box-shadow[/code].
+		</member>
+		<member name="inset" type="bool" setter="set_inset" getter="is_inset" default="false">
+			If [code]true[/code], the shadow is drawn inside the border box instead of behind it. The CSS [code]inset[/code] keyword.
+		</member>
+		<member name="offset" type="Vector2" setter="set_offset" getter="get_offset" default="Vector2(0, 0)">
+			Horizontal and vertical shadow offset in pixels — the first two lengths of a CSS [code]box-shadow[/code].
+		</member>
+		<member name="spread" type="float" setter="set_spread" getter="get_spread" default="0.0">
+			Amount the shadow shape grows (positive) or shrinks (negative) before being blurred — the fourth length of a CSS [code]box-shadow[/code].
+		</member>
+	</members>
+</class>

@@ -2634,25 +2634,65 @@ void ThemeTypeEditor::_update_type_items() {
 		HashMap<StringName, bool> constant_items = _get_type_items(edited_type, Theme::DATA_TYPE_CONSTANT, show_default);
 		for (const KeyValue<StringName, bool> &E : constant_items) {
 			HBoxContainer *item_control = _create_property_control(Theme::DATA_TYPE_CONSTANT, E.key, E.value);
-			EditorSpinSlider *item_editor = memnew(EditorSpinSlider);
-			item_editor->set_h_size_flags(SIZE_EXPAND_FILL);
-			item_editor->set_min(-100000);
-			item_editor->set_max(100000);
-			item_editor->set_editing_integer(true);
-			item_editor->set_step(1);
-			item_editor->set_allow_lesser(true);
-			item_editor->set_allow_greater(true);
-			item_control->add_child(item_editor);
-
-			if (E.value) {
-				item_editor->set_value(edited_theme->get_constant(E.key, edited_type));
-				item_editor->connect(SceneStringName(value_changed), callable_mp(this, &ThemeTypeEditor::_constant_item_changed).bind(E.key));
-			} else {
-				item_editor->set_value(ThemeDB::get_singleton()->get_default_theme()->get_constant(E.key, edited_type));
-				item_editor->set_read_only(true);
+			PropertyHint hint = PROPERTY_HINT_NONE;
+			String hint_string;
+			List<ThemeDB::ThemeItemBind> theme_binds;
+			ThemeDB::get_singleton()->get_class_items(edited_type, &theme_binds, true, Theme::DATA_TYPE_CONSTANT);
+			for (const ThemeDB::ThemeItemBind &B : theme_binds) {
+				if (B.item_name == E.key) {
+					hint = B.hint;
+					hint_string = B.hint_string;
+					break;
+				}
 			}
 
-			_add_focusable(item_editor);
+			if (hint == PROPERTY_HINT_ENUM && !hint_string.is_empty()) {
+				OptionButton *item_editor = memnew(OptionButton);
+				item_editor->set_h_size_flags(SIZE_EXPAND_FILL);
+				const PackedStringArray options = hint_string.split(",");
+				for (int i = 0; i < options.size(); i++) {
+					String option_text = options[i];
+					int option_id = i;
+					const int colon = option_text.find_char(':');
+					if (colon >= 0) {
+						option_id = option_text.substr(colon + 1).to_int();
+						option_text = option_text.substr(0, colon);
+					}
+					item_editor->add_item(option_text, option_id);
+				}
+				const int value = E.value ? edited_theme->get_constant(E.key, edited_type) : ThemeDB::get_singleton()->get_default_theme()->get_constant(E.key, edited_type);
+				const int selected_idx = item_editor->get_item_index(value);
+				if (selected_idx >= 0) {
+					item_editor->select(selected_idx);
+				}
+				item_control->add_child(item_editor);
+
+				if (E.value) {
+					item_editor->connect(SceneStringName(item_selected), callable_mp(this, &ThemeTypeEditor::_constant_enum_item_changed).bind(E.key));
+				} else {
+					item_editor->set_disabled(true);
+				}
+				_add_focusable(item_editor);
+			} else {
+				EditorSpinSlider *item_editor = memnew(EditorSpinSlider);
+				item_editor->set_h_size_flags(SIZE_EXPAND_FILL);
+				item_editor->set_min(-100000);
+				item_editor->set_max(100000);
+				item_editor->set_editing_integer(true);
+				item_editor->set_step(1);
+				item_editor->set_allow_lesser(true);
+				item_editor->set_allow_greater(true);
+				item_control->add_child(item_editor);
+
+				if (E.value) {
+					item_editor->set_value(edited_theme->get_constant(E.key, edited_type));
+					item_editor->connect(SceneStringName(value_changed), callable_mp(this, &ThemeTypeEditor::_constant_item_changed).bind(E.key));
+				} else {
+					item_editor->set_value(ThemeDB::get_singleton()->get_default_theme()->get_constant(E.key, edited_type));
+					item_editor->set_read_only(true);
+				}
+				_add_focusable(item_editor);
+			}
 			constant_items_list->add_child(item_control);
 		}
 	}
@@ -3265,6 +3305,10 @@ void ThemeTypeEditor::_constant_item_changed(float p_value, String p_item_name) 
 	ur->add_do_method(*edited_theme, "set_constant", p_item_name, edited_type, p_value);
 	ur->add_undo_method(*edited_theme, "set_constant", p_item_name, edited_type, edited_theme->get_constant(p_item_name, edited_type));
 	ur->commit_action();
+}
+
+void ThemeTypeEditor::_constant_enum_item_changed(int p_value, String p_item_name) {
+	_constant_item_changed(p_value, p_item_name);
 }
 
 void ThemeTypeEditor::_font_size_item_changed(float p_value, String p_item_name) {

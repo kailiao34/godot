@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="WebSVGCircle" inherits="WebSVGElement" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		An SVG [code]&lt;circle&gt;[/code] element.
+	</brief_description>
+	<description>
+		A circle in the scriptable SVG DOM. See [WebSVGElement] for the shared fill, stroke and transform properties.
+	</description>
+	<tutorials>
+	</tutorials>
+	<members>
+		<member name="center" type="Vector2" setter="set_center" getter="get_center" default="Vector2(0, 0)">
+			Center point, SVG [code]cx[/code] and [code]cy[/code].
+		</member>
+		<member name="radius" type="float" setter="set_radius" getter="get_radius" default="0.0">
+			Radius, SVG [code]r[/code].
+		</member>
+	</members>
+</class>
