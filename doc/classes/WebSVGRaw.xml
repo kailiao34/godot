@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="WebSVGRaw" inherits="WebSVGElement" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		An opaque fragment of SVG markup inside a [WebSVG] document.
+	</brief_description>
+	<description>
+		[WebSVGRaw] holds a piece of SVG markup that the typed DOM does not model — [code]&lt;defs&gt;[/code], gradients, [code]&lt;clipPath&gt;[/code], [code]&lt;mask&gt;[/code], [code]&lt;use&gt;[/code], [code]&lt;symbol&gt;[/code], [code]&lt;style&gt;[/code], [code]&lt;image&gt;[/code] and filters — and emits it verbatim when the document is serialized.
+		[WebSVG] creates these automatically while parsing, one per unmodeled element, in document order. They are what makes serializing the DOM lossless: without them, editing a single shape would discard everything else an imported document contains.
+		The presentation properties inherited from [WebSVGElement] ([code]fill[/code], [code]stroke[/code], [code]opacity[/code] and so on) are hidden and have no effect, because [member markup] is emitted exactly as stored.
+	</description>
+	<tutorials>
+	</tutorials>
+	<members>
+		<member name="markup" type="String" setter="set_markup" getter="get_markup" default="&quot;&quot;">
+			The verbatim SVG markup for this fragment, including its start and end tags and every descendant. Emitted unchanged into the rendered and exported document.
+		</member>
+		<member name="tag_name" type="String" setter="set_tag_name" getter="get_tag_name" default="&quot;&quot;">
+			The name of the element this fragment came from, such as [code]linearGradient[/code]. Informational only; it identifies the node in the scene tree and is not used when serializing.
+		</member>
+	</members>
+</class>

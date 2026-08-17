@@ -254,6 +254,28 @@ public:
 	virtual String to_svg() const override;
 };
 
+// An opaque fragment of SVG markup the typed DOM does not model: `<defs>`,
+// gradients, `<clipPath>`, `<mask>`, `<use>`, `<style>`, `<image>`, filters and
+// so on. Holding them as nodes keeps serialization lossless, so editing one
+// shape can no longer discard the rest of an imported document.
+class WebSVGRaw : public WebSVGElement {
+	GDCLASS(WebSVGRaw, WebSVGElement);
+	String markup;
+	String tag_name; // Reported in the editor so the node is identifiable.
+
+protected:
+	static void _bind_methods();
+	void _validate_property(PropertyInfo &p_property) const;
+
+public:
+	virtual String to_svg() const override { return markup; }
+
+	void set_markup(const String &p_markup);
+	String get_markup() const;
+	void set_tag_name(const String &p_tag);
+	String get_tag_name() const;
+};
+
 // A SMIL animation (`<animate>` / `<animateTransform>`) attached to its parent
 // WebSVGElement. Serialized verbatim into the parent's tag so browsers play it
 // natively; the owning WebSVG also evaluates it every frame for live canvas

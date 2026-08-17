@@ -5,7 +5,12 @@
 	</brief_description>
 	<description>
 		[WebSVG] mimics the HTML [code]&lt;svg&gt;[/code] element. The node's rect [member Control.size] is the SVG [code]width[/code]/[code]height[/code]: the SVG content is drawn at 1:1 scale and, when the node is resized, it is clipped rather than scaled — exactly like an [code]&lt;svg&gt;[/code] with no [code]viewBox[/code]. The element is wrapped by the CSS box model: [code]border[/code], [code]background[/code], [code]box-shadow[/code], [code]border-radius[/code] and padding come from the [theme_item style] theme item (a [StyleBoxCSS]), while [theme_item box_sizing] controls whether the node size is the content box or border box. With the default [code]content-box[/code] sizing, border and padding grow outward from the node size; with [code]border-box[/code] they are drawn inside it and the content area shrinks.
-		Markup assigned through [member svg_markup] (or [method parse_svg]) is rendered verbatim, so [code]&lt;defs&gt;[/code], gradients and filters survive; editing the scriptable child [WebSVGElement] nodes switches rendering to the serialized DOM.
+		A document can come from three places, and all three run the same pipeline (decode, sanitize, inline external resources, parse):
+		- [member svg_markup] — markup typed or pasted directly, as in an HTML [code]&lt;svg&gt;[/code] element.
+		- [member svg_source] — a [code].svg[/code] file dragged in from the FileSystem dock. [code].svg[/code] files import as [DPITexture], which carries the source markup, so no separate import step is needed.
+		- [member svg_file_path] — a path, which may point outside the project or at [code]user://[/code]. [method load_svg_file] and [method load_svg_bytes] do the same thing at runtime, which is how an application lets its own users pick and swap artwork.
+		Markup is rendered verbatim, so [code]&lt;defs&gt;[/code], gradients, [code]&lt;clipPath&gt;[/code] and filters survive. Elements the typed DOM does not model are preserved as [WebSVGRaw] child nodes, so editing one shape never discards the rest of an imported document.
+		Imported documents are treated as untrusted input. [member sanitize] strips [code]&lt;script&gt;[/code], [code]on*[/code] event handlers, unsafe [code]href[/code] schemes and [code]&lt;!DOCTYPE&gt;[/code] internal subsets; [member inline_external_resources] rewrites referenced images to [code]data:[/code] URIs so the document is self-contained and renders identically here and in a browser.
 		Default values reproduce the browser user-agent stylesheet for [code]&lt;svg&gt;[/code]: a transparent background, no border, no shadow, no padding and content-box sizing.
 	</description>
 	<tutorials>
@@ -21,7 +26,8 @@
 			<return type="int" enum="Error" />
 			<param index="0" name="markup" type="String" />
 			<description>
-				Parses a full SVG markup string (including inline [code]style[/code] and any [code]&lt;defs&gt;[/code]/gradients), sets the node size from the [code]width[/code]/[code]height[/code] attributes, applies box CSS from the root [code]&lt;svg style="…"&gt;[/code], rebuilds the scriptable child DOM, and renders the markup verbatim.
+				Parses a full SVG markup string (including inline [code]style[/code] and any [code]&lt;defs&gt;[/code]/gradients), sets the node size from [method get_intrinsic_size], applies box CSS from the root [code]&lt;svg style="…"&gt;[/code], rebuilds the scriptable child DOM, and renders the markup verbatim.
+				The markup passes through the same sanitizing and resource-inlining steps as a loaded file, governed by [member sanitize] and [member inline_external_resources].
 			</description>
 		</method>
 		<method name="to_svg_string" qualifiers="const">
@@ -49,15 +55,179 @@
 				Returns the padding box: the border box inset by the border widths.
 			</description>
 		</method>
+		<method name="load_svg_file">
+			<return type="int" enum="Error" />
+			<param index="0" name="path" type="String" />
+			<description>
+				Loads and renders the SVG document at [param path], which may be a [code]res://[/code] resource, a [code]user://[/code] file, or an absolute path outside the project. Handles gzip-compressed [code].svgz[/code] files, a byte order mark, and UTF-8 or UTF-16 encoding.
+				[code]res://[/code] paths are resolved through [ResourceLoader] first, so they keep working in an exported project where the original [code].svg[/code] is replaced by its imported [DPITexture].
+				Relative [code]&lt;image href&gt;[/code] references are resolved against the file's own directory.
+			</description>
+		</method>
+		<method name="load_svg_bytes">
+			<return type="int" enum="Error" />
+			<param index="0" name="bytes" type="PackedByteArray" />
+			<param index="1" name="base_dir" type="String" default="&quot;&quot;" />
+			<description>
+				Loads a document already held in memory — downloaded, generated, or read by the application itself. Accepts the same encodings and compression as [method load_svg_file]. [param base_dir] is the directory relative [code]&lt;image href&gt;[/code] references resolve against; leave it empty when the document has no external references.
+			</description>
+		</method>
+		<method name="reload_source">
+			<return type="int" enum="Error" />
+			<description>
+				Re-reads [member svg_source] or [member svg_file_path], bypassing the resource cache, so edits made to the file on disk are picked up. Returns [constant @GlobalScope.ERR_UNCONFIGURED] when neither is set.
+			</description>
+		</method>
+		<method name="clear">
+			<return type="void" />
+			<description>
+				Discards the document along with [member svg_source] and [member svg_file_path], leaving the node empty.
+			</description>
+		</method>
+		<method name="get_intrinsic_size" qualifiers="const">
+			<return type="Vector2" />
+			<description>
+				Returns the document's own size, following the CSS rules for replaced elements: the root [code]width[/code] and [code]height[/code] when both are absolute lengths, otherwise the [code]viewBox[/code] size, otherwise the [code]300 x 150[/code] default. Loading a document sets [member Control.size] to this, so artwork renders at its natural size unless [member fit] says otherwise.
+			</description>
+		</method>
+		<method name="get_view_box" qualifiers="const">
+			<return type="Rect2" />
+			<description>
+				Returns the document's [code]viewBox[/code]. Meaningful only when [method has_view_box] returns [code]true[/code].
+			</description>
+		</method>
+		<method name="has_view_box" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] when the document declares a usable [code]viewBox[/code].
+			</description>
+		</method>
+		<method name="get_document_info" qualifiers="const">
+			<return type="Dictionary" />
+			<description>
+				Returns what parsing found: [code]intrinsic_size[/code], [code]has_intrinsic_size[/code], [code]view_box[/code], [code]has_view_box[/code], [code]preserve_aspect_ratio[/code], [code]element_count[/code], [code]has_animations[/code], [code]source_mode[/code], [code]dom_built[/code], plus three string arrays: [code]unsupported[/code] (features that will not render), [code]removed[/code] (active content sanitizing stripped) and [code]warnings[/code] (external references that could not be resolved).
+			</description>
+		</method>
+		<method name="get_unsupported_features" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>
+				Returns the features the document uses that the renderer cannot draw, such as [code]&lt;pattern&gt;[/code] or filter primitives other than [code]feGaussianBlur[/code]. Empty when the document renders completely.
+			</description>
+		</method>
+		<method name="get_document_status" qualifiers="const">
+			<return type="String" />
+			<description>
+				Returns a human-readable summary of [method get_document_info], shown read-only in the Inspector.
+			</description>
+		</method>
 	</methods>
 	<members>
 		<member name="svg_markup" type="String" setter="set_svg_markup" getter="get_svg_markup">
-			Editor-only entry point for pasting SVG markup. Setting it calls [method parse_svg]; reading it returns [method to_svg_string]. Not stored in the scene — the child [WebSVGElement] nodes are the persisted source of truth.
+			Entry point for pasting SVG markup. Setting it calls [method parse_svg]; reading it returns [method to_svg_string].
+			Setting this by hand clears [member svg_source] and [member svg_file_path], because the two input methods are alternatives — otherwise the next reload would silently overwrite the edit.
+			While a file source is set this property is hidden from the Inspector and not stored in the scene: the file is the source of truth, and handing a real-world SVG (tens of kilobytes, often on a single line) to a multiline text field costs seconds every time the property list rebuilds. [member document_status] carries the summary, and scripts can still read the markup here or through [method to_svg_string].
+		</member>
+		<member name="svg_source" type="Texture2D" setter="set_svg_source" getter="get_svg_source">
+			An [code].svg[/code] file to render, normally set by dragging one in from the FileSystem dock. Setting this clears [member svg_file_path]. Relative [code]&lt;image href&gt;[/code] references resolve against the resource's directory.
+			How the markup is obtained depends on how the file was imported:
+			- Imported as [DPITexture], the resource itself carries the SVG source, so the document travels with the scene and works in an exported project.
+			- Imported as a raster texture — the default for [code].svg[/code], since [code]ResourceImporterTexture[/code] claims the extension first — the resource holds only pixels, so the markup is read from the file on disk instead. That works in the editor, but the original [code].svg[/code] is not packed into an export. The node raises a scene-tree warning saying so; resolve it by setting [b]Import As[/b] to [b]DPITexture[/b] and reimporting, by enabling [member embed_source], or by using [member svg_file_path].
+			Assigning a texture that is not an SVG at all leaves nothing to render, and is reported the same way.
+		</member>
+		<member name="svg_file_path" type="String" setter="set_svg_file_path" getter="get_svg_file_path" default="&quot;&quot;">
+			Path of an [code].svg[/code] or [code].svgz[/code] file to render. Unlike [member svg_source] this may point at [code]user://[/code] or outside the project, which is what makes it usable for files an application's own user chooses. Accepts drag and drop from the FileSystem dock.
+			Setting this clears [member svg_source].
+		</member>
+		<member name="document_status" type="String" setter="" getter="get_document_status">
+			Read-only summary of the loaded document: its size, element count, and any unsupported features, removed content or unresolved references. See [method get_document_info] for the same information in a form scripts can use.
+		</member>
+		<member name="embedded_source" type="String" setter="set_embedded_source" getter="get_embedded_source" default="&quot;&quot;">
+			The stored copy of the document kept when [member embed_source] is enabled. Written by the node; there is no reason to set it directly.
+		</member>
+		<member name="embed_source" type="bool" setter="set_embed_source" getter="is_embed_source" default="false">
+			When [code]true[/code], a copy of the loaded document is stored in the scene alongside the file reference, and is used if the file cannot be read later. Off by default: the copy makes the scene self-contained but duplicates the whole document into it, once per node.
+		</member>
+		<member name="dom_mode" type="int" setter="set_dom_mode" getter="get_dom_mode" enum="WebSVG.DomMode" default="0">
+			Whether the document is mirrored into scriptable child [WebSVGElement] nodes. Building the DOM is what makes individual shapes addressable from code, but it costs a [Node] per element, which is a poor trade for a large imported file nobody intends to edit.
+			[constant DOM_AUTO] builds the DOM for markup, and for a file only when it contains SMIL animation — which [WebSVGAnimation] can only play back from the typed DOM.
+		</member>
+		<member name="sanitize" type="bool" setter="set_sanitize_enabled" getter="is_sanitize_enabled" default="true">
+			Whether to strip active content from the document while loading: [code]&lt;script&gt;[/code] and [code]&lt;foreignObject&gt;[/code] elements, [code]on*[/code] event handlers, [code]href[/code] values with a scheme such as [code]javascript:[/code] or a remote URL, and [code]&lt;!DOCTYPE&gt;[/code] internal subsets, which is how entity-expansion attacks arrive.
+			Leave this on for any document the application did not author itself, especially when the markup will be served as part of a web page. What was removed is reported by [method get_document_info].
+		</member>
+		<member name="inline_external_resources" type="bool" setter="set_inline_resources_enabled" getter="is_inline_resources_enabled" default="true">
+			Whether [code]&lt;image&gt;[/code] elements referencing local files are rewritten to [code]data:[/code] URIs while loading. The renderer resolves no external paths, so without this an SVG that references a sibling image renders incomplete here while looking correct in a browser. Inlining also makes the exported markup self-contained. JPEG and WebP references are re-encoded as PNG, the one raster format the renderer is built with.
+		</member>
+		<member name="fit" type="int" setter="set_fit" getter="get_fit" enum="WebSVG.Fit" default="0">
+			How the document is scaled into the content box when the node's size differs from [method get_intrinsic_size], mirroring CSS [code]object-fit[/code].
+			This is applied by writing [code]viewBox[/code] and [code]preserveAspectRatio[/code] onto the rendered root rather than by transforming on the Godot side, so a browser handed the same markup reaches the same result by specification rather than by a matching implementation. When the document declares no [code]viewBox[/code], one is synthesized from the intrinsic size.
+		</member>
+		<member name="fit_align" type="int" setter="set_fit_align" getter="get_fit_align" enum="WebSVG.FitAlign" default="4">
+			Where the document sits inside the content box when [member fit] preserves its aspect ratio. Corresponds to the alignment half of [code]preserveAspectRatio[/code]. Has no effect when [member fit] is [constant FIT_NONE] or [constant FIT_FILL].
 		</member>
 		<member name="animations_enabled" type="bool" setter="set_animations_enabled" getter="are_animations_enabled" default="true">
 			Whether child [WebSVGAnimation] elements play on the canvas. During playback the typed child DOM is serialized every frame with the current animated values (re-rasterizing only when the document changed), so raw markup extras such as [code]&lt;defs&gt;[/code] are not rendered while an animation is active. Serialized markup always includes the SMIL tags regardless of this setting.
 		</member>
 	</members>
+	<constants>
+		<constant name="SOURCE_MARKUP" value="0" enum="SourceMode">
+			The document came from [member svg_markup].
+		</constant>
+		<constant name="SOURCE_FILE" value="1" enum="SourceMode">
+			The document came from [member svg_source] or [member svg_file_path].
+		</constant>
+		<constant name="DOM_AUTO" value="0" enum="DomMode">
+			Build the scriptable DOM for markup, and for a file only when it contains SMIL animation that needs it.
+		</constant>
+		<constant name="DOM_ALWAYS" value="1" enum="DomMode">
+			Always build the scriptable DOM, whatever the document's size or origin.
+		</constant>
+		<constant name="DOM_NEVER" value="2" enum="DomMode">
+			Never build the scriptable DOM. The fastest option for a large imported file, at the cost of not being able to address its shapes from code.
+		</constant>
+		<constant name="FIT_NONE" value="0" enum="Fit">
+			Honor the document's own [code]viewBox[/code] and [code]preserveAspectRatio[/code]. A document with a [code]viewBox[/code] scales to the content box the way a browser would; one without renders at 1:1 and is clipped.
+		</constant>
+		<constant name="FIT_CONTAIN" value="1" enum="Fit">
+			Scale to fit entirely inside the content box, preserving the aspect ratio. CSS [code]object-fit: contain[/code], SVG [code]meet[/code].
+		</constant>
+		<constant name="FIT_COVER" value="2" enum="Fit">
+			Scale to cover the content box, preserving the aspect ratio and clipping the overflow. CSS [code]object-fit: cover[/code], SVG [code]slice[/code].
+		</constant>
+		<constant name="FIT_FILL" value="3" enum="Fit">
+			Stretch to fill the content box, ignoring the aspect ratio. CSS [code]object-fit: fill[/code], SVG [code]preserveAspectRatio="none"[/code].
+		</constant>
+		<constant name="FIT_SCALE_DOWN" value="4" enum="Fit">
+			Behaves as [constant FIT_NONE] when the content box is at least as large as the document, and as [constant FIT_CONTAIN] otherwise, so artwork is shrunk to fit but never enlarged. CSS [code]object-fit: scale-down[/code].
+		</constant>
+		<constant name="ALIGN_TOP_LEFT" value="0" enum="FitAlign">
+			[code]preserveAspectRatio[/code] alignment [code]xMinYMin[/code].
+		</constant>
+		<constant name="ALIGN_TOP_CENTER" value="1" enum="FitAlign">
+			[code]preserveAspectRatio[/code] alignment [code]xMidYMin[/code].
+		</constant>
+		<constant name="ALIGN_TOP_RIGHT" value="2" enum="FitAlign">
+			[code]preserveAspectRatio[/code] alignment [code]xMaxYMin[/code].
+		</constant>
+		<constant name="ALIGN_CENTER_LEFT" value="3" enum="FitAlign">
+			[code]preserveAspectRatio[/code] alignment [code]xMinYMid[/code].
+		</constant>
+		<constant name="ALIGN_CENTER" value="4" enum="FitAlign">
+			[code]preserveAspectRatio[/code] alignment [code]xMidYMid[/code], the SVG default.
+		</constant>
+		<constant name="ALIGN_CENTER_RIGHT" value="5" enum="FitAlign">
+			[code]preserveAspectRatio[/code] alignment [code]xMaxYMid[/code].
+		</constant>
+		<constant name="ALIGN_BOTTOM_LEFT" value="6" enum="FitAlign">
+			[code]preserveAspectRatio[/code] alignment [code]xMinYMax[/code].
+		</constant>
+		<constant name="ALIGN_BOTTOM_CENTER" value="7" enum="FitAlign">
+			[code]preserveAspectRatio[/code] alignment [code]xMidYMax[/code].
+		</constant>
+		<constant name="ALIGN_BOTTOM_RIGHT" value="8" enum="FitAlign">
+			[code]preserveAspectRatio[/code] alignment [code]xMaxYMax[/code].
+		</constant>
+	</constants>
 	<theme_items>
 		<theme_item name="box_sizing" data_type="constant" type="int" default="0">
 			How the node size maps to the box. Numeric values are: [code]0[/code] = [code]Content Box[/code] / CSS [code]content-box[/code] (CSS default; the node size is the SVG content area and border + padding grow outward), [code]1[/code] = [code]Border Box[/code] / CSS [code]border-box[/code] (the node size is the border box and the content area shrinks). CSS [code]box-sizing[/code].
