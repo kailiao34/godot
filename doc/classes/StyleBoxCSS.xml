@@ -136,6 +136,12 @@
 		</method>
 	</methods>
 	<members>
+		<member name="anti_aliasing" type="bool" setter="set_anti_aliased" getter="is_anti_aliased" default="true">
+			If [code]true[/code], rounded background and border boundaries receive a transparent coverage fringe to reduce jagged edges.
+		</member>
+		<member name="anti_aliasing_size" type="float" setter="set_aa_size" getter="get_aa_size" default="1.0">
+			Width of the antialiasing fringe in pixels. The effective width is adjusted for viewport oversampling.
+		</member>
 		<member name="background_clip" type="int" setter="set_background_clip" getter="get_background_clip" enum="StyleBoxCSS.BackgroundClip" default="0">
 			The area the background is painted into: the border box, padding box or content box. CSS [code]background-clip[/code]. Defaults to border box.
 		</member>
@@ -197,7 +203,7 @@
 			Ordered list of drop and inner shadows, painted first-on-top like CSS. Each entry is a [WebBoxShadow]. CSS [code]box-shadow[/code].
 		</member>
 		<member name="corner_detail" type="int" setter="set_corner_detail" getter="get_corner_detail" default="8">
-			Number of segments used to tessellate each rounded corner. Higher values produce smoother corners at a small performance cost.
+			Minimum number of segments used to tessellate each rounded corner. Larger radii automatically use more segments to keep their screen-space chord error small.
 		</member>
 		<member name="corner_radius_bottom_left" type="Vector2" setter="set_corner_radius" getter="get_corner_radius" default="Vector2(0, 0)">
 			Horizontal ([member Vector2.x]) and vertical ([member Vector2.y]) radius of the bottom-left corner, enabling elliptical corners. CSS [code]border-bottom-left-radius[/code].
@@ -248,6 +254,18 @@
 		</constant>
 		<constant name="BORDER_STYLE_DOUBLE" value="4" enum="BorderStyle">
 			Two parallel solid lines. CSS [code]border-style: double[/code].
+		</constant>
+		<constant name="BORDER_STYLE_GROOVE" value="5" enum="BorderStyle">
+			A carved-in look: the outer half uses the inset colors and the inner half the outset colors. CSS [code]border-style: groove[/code].
+		</constant>
+		<constant name="BORDER_STYLE_RIDGE" value="6" enum="BorderStyle">
+			The opposite of [constant BORDER_STYLE_GROOVE]: the border seems to come out of the canvas. CSS [code]border-style: ridge[/code].
+		</constant>
+		<constant name="BORDER_STYLE_INSET" value="7" enum="BorderStyle">
+			The box seems embedded: top and left sides are darkened, bottom and right lightened. CSS [code]border-style: inset[/code].
+		</constant>
+		<constant name="BORDER_STYLE_OUTSET" value="8" enum="BorderStyle">
+			The box seems to come out: top and left sides are lightened, bottom and right darkened. CSS [code]border-style: outset[/code].
 		</constant>
 		<constant name="BOX_SIZING_CONTENT_BOX" value="0" enum="BoxSizing">
 			The declared size sets the content box; border and padding are added outside it. The CSS default. CSS [code]box-sizing: content-box[/code].

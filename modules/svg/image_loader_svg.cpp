@@ -30,6 +30,9 @@
 
 #include "image_loader_svg.h"
 
+#include "svg_marker_path_converter.h"
+#include "svg_text_path_converter.h"
+
 #include "core/variant/variant.h"
 
 #include <thorvg.h>
@@ -79,9 +82,18 @@ Ref<Image> ImageLoaderSVG::load_mem_svg(const uint8_t *p_svg, int p_size, float 
 Error ImageLoaderSVG::create_image_from_utf8_buffer(Ref<Image> p_image, const uint8_t *p_buffer, int p_buffer_size, float p_scale, bool p_upsample) {
 	ERR_FAIL_COND_V_MSG(Math::is_zero_approx(p_scale), ERR_INVALID_PARAMETER, "ImageLoaderSVG: Can't load SVG with a scale of 0.");
 
+	String source;
+	const Error source_error = source.append_utf8((const char *)p_buffer, p_buffer_size);
+	if (source_error != OK) {
+		return source_error;
+	}
+	source = SVGTextPathConverter::convert(source);
+	source = SVGMarkerPathConverter::convert(source);
+	PackedByteArray converted = source.to_utf8_buffer();
+
 	tvg::Picture *picture = tvg::Picture::gen();
 
-	tvg::Result result = picture->load((const char *)p_buffer, p_buffer_size, "svg", nullptr, true);
+	tvg::Result result = picture->load((const char *)converted.ptr(), converted.size(), "svg", nullptr, true);
 	if (result != tvg::Result::Success) {
 		tvg::Paint::rel(picture);
 		return ERR_INVALID_DATA;

@@ -58,11 +58,23 @@ public:
 		BORDER_STYLE_DASHED,
 		BORDER_STYLE_DOTTED,
 		BORDER_STYLE_DOUBLE,
+		BORDER_STYLE_GROOVE,
+		BORDER_STYLE_RIDGE,
+		BORDER_STYLE_INSET,
+		BORDER_STYLE_OUTSET,
 	};
 
 	enum BoxSizing {
 		BOX_SIZING_CONTENT_BOX,
 		BOX_SIZING_BORDER_BOX,
+	};
+
+	enum GradientCorner {
+		GRADIENT_CORNER_NONE,
+		GRADIENT_CORNER_TOP_RIGHT,
+		GRADIENT_CORNER_BOTTOM_RIGHT,
+		GRADIENT_CORNER_BOTTOM_LEFT,
+		GRADIENT_CORNER_TOP_LEFT,
 	};
 
 private:
@@ -73,6 +85,11 @@ private:
 	// painted over `background_color` inside the same clip box.
 	Ref<Gradient> background_gradient;
 	float background_gradient_angle = 180.0; // CSS convention: 0deg = to top, 90deg = to right.
+	// `linear-gradient(to <corner>, ...)`: the angle follows the box's aspect
+	// ratio (the gradient line is perpendicular to the diagonal joining the
+	// two neighbouring corners), so it is resolved at draw time.
+	GradientCorner background_gradient_corner = GRADIENT_CORNER_NONE;
+	float _gradient_angle_for(const Size2 &p_box) const;
 	bool background_gradient_repeating = false;
 	float background_gradient_period = 0.0; // Repeat period in px; 0 = the full gradient line.
 
@@ -97,10 +114,15 @@ private:
 	BoxSizing box_sizing = BOX_SIZING_CONTENT_BOX;
 
 	int corner_detail = 8;
+	bool anti_aliased = true;
+	real_t aa_size = 1.0;
 
 	Vector<Ref<WebBoxShadow>> box_shadows;
 
 	void _shadows_changed();
+	// Paints one border ring (all four sides) with already-resolved styles.
+	void _draw_border_ring(RID p_ci, const Rect2 &p_border_box, const Vector2 p_radius[4], const real_t p_widths[4],
+			const Color p_colors[4], const BorderStyle p_styles[4], const real_t p_pixel_size[4], real_t p_aa_half_width, int p_detail) const;
 	// Effective border width for a side (0 when its style is `none`).
 	real_t _effective_border(Side p_side) const;
 
@@ -119,6 +141,8 @@ public:
 	Ref<Gradient> get_background_gradient() const;
 	void set_background_gradient_angle(float p_degrees);
 	float get_background_gradient_angle() const;
+	void set_background_gradient_corner(GradientCorner p_corner);
+	GradientCorner get_background_gradient_corner() const;
 	void set_background_gradient_repeating(bool p_repeating);
 	bool is_background_gradient_repeating() const;
 	void set_background_gradient_period(float p_period);
@@ -149,6 +173,10 @@ public:
 
 	void set_corner_detail(int p_corner_detail);
 	int get_corner_detail() const;
+	void set_anti_aliased(bool p_anti_aliased);
+	bool is_anti_aliased() const;
+	void set_aa_size(real_t p_size);
+	real_t get_aa_size() const;
 
 	void set_box_shadows(const TypedArray<WebBoxShadow> &p_shadows);
 	TypedArray<WebBoxShadow> get_box_shadows() const;
@@ -168,3 +196,4 @@ public:
 VARIANT_ENUM_CAST(StyleBoxCSS::BackgroundClip);
 VARIANT_ENUM_CAST(StyleBoxCSS::BorderStyle);
 VARIANT_ENUM_CAST(StyleBoxCSS::BoxSizing);
+VARIANT_ENUM_CAST(StyleBoxCSS::GradientCorner);

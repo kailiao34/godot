@@ -541,6 +541,51 @@ String WebSVGGroup::to_svg() const {
 void WebSVGGroup::_bind_methods() {
 }
 
+// --- WebSVGRaw ---
+
+void WebSVGRaw::set_markup(const String &p_markup) {
+	if (markup == p_markup) {
+		return;
+	}
+	markup = p_markup;
+	_mark_dirty();
+}
+
+String WebSVGRaw::get_markup() const {
+	return markup;
+}
+
+void WebSVGRaw::set_tag_name(const String &p_tag) {
+	tag_name = p_tag;
+}
+
+String WebSVGRaw::get_tag_name() const {
+	return tag_name;
+}
+
+void WebSVGRaw::_validate_property(PropertyInfo &p_property) const {
+	// The fragment is emitted verbatim, so the inherited presentation properties
+	// would be shown but have no effect.
+	static const char *inherited[] = { "fill", "fill_none", "fill_opacity", "stroke", "stroke_enabled",
+		"stroke_opacity", "stroke_width", "opacity", "transform", "extra_style", nullptr };
+	for (int i = 0; inherited[i]; i++) {
+		if (p_property.name == inherited[i]) {
+			p_property.usage = PROPERTY_USAGE_NONE;
+			return;
+		}
+	}
+}
+
+void WebSVGRaw::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("set_markup", "markup"), &WebSVGRaw::set_markup);
+	ClassDB::bind_method(D_METHOD("get_markup"), &WebSVGRaw::get_markup);
+	ClassDB::bind_method(D_METHOD("set_tag_name", "tag_name"), &WebSVGRaw::set_tag_name);
+	ClassDB::bind_method(D_METHOD("get_tag_name"), &WebSVGRaw::get_tag_name);
+
+	ADD_PROPERTY(PropertyInfo(Variant::STRING, "markup", PROPERTY_HINT_MULTILINE_TEXT), "set_markup", "get_markup");
+	ADD_PROPERTY(PropertyInfo(Variant::STRING, "tag_name"), "set_tag_name", "get_tag_name");
+}
+
 // --- WebSVGAnimation ---
 
 static const char *SVG_TRANSFORM_TYPE_NAMES[] = { "translate", "scale", "rotate", "skewX", "skewY" };
