@@ -35,6 +35,7 @@
 #include "core/object/class_db.h"
 #include "scene/resources/image_texture.h"
 #include "servers/rendering/rendering_server.h"
+#include "servers/text/text_server.h"
 
 // Builds the closed outline of a rounded rectangle with per-corner elliptical
 // radii. Corner order matches Godot's Corner enum: TL, TR, BR, BL. The same
@@ -119,11 +120,120 @@ static void fill_quad(RID p_ci, const Vector2 &a, const Vector2 &b, const Vector
 	RenderingServer::get_singleton()->canvas_item_add_triangle_array(p_ci, idx, pts, cols);
 }
 
+// Fills a quad with per-vertex colors. This is used for the one-pixel
+// coverage fringe around rounded outlines: the vertices on the CSS geometry
+// keep their source color while the vertices just outside it are transparent.
+static void fill_quad_colors(RID p_ci, const Vector2 &a, const Vector2 &b, const Vector2 &c, const Vector2 &d,
+		const Color &ca, const Color &cb, const Color &cc, const Color &cd) {
+	Vector<Vector2> pts;
+	pts.push_back(a);
+	pts.push_back(b);
+	pts.push_back(c);
+	pts.push_back(d);
+	Vector<Color> cols;
+	cols.push_back(ca);
+	cols.push_back(cb);
+	cols.push_back(cc);
+	cols.push_back(cd);
+	Vector<int> idx;
+	idx.push_back(0);
+	idx.push_back(1);
+	idx.push_back(2);
+	idx.push_back(0);
+	idx.push_back(2);
+	idx.push_back(3);
+	RenderingServer::get_singleton()->canvas_item_add_triangle_array(p_ci, idx, pts, cols);
+}
+
 // Side that each corner's arc belongs to (incoming half / outgoing half), and the
 // side that each straight edge (after a corner) belongs to. Corner order: TL,TR,BR,BL.
 static const Side CORNER_INCOMING[4] = { SIDE_LEFT, SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM };
 static const Side CORNER_OUTGOING[4] = { SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM, SIDE_LEFT };
 static const Side EDGE_SIDE[4] = { SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM, SIDE_LEFT };
+
+static Color transparent_color(const Color &p_color) {
+	Color transparent = p_color;
+	transparent.a = 0.0;
+	return transparent;
+}
+
+static void offset_radii(const Vector2 p_source[4], real_t p_amount, Vector2 r_target[4]) {
+	for (int i = 0; i < 4; i++) {
+		r_target[i] = (p_source[i] + Vector2(p_amount, p_amount)).maxf(0.0);
+	}
+}
+
+// Treat corner_detail as a quality floor. Large radii need more segments than
+// small radii to keep the maximum chord error below a fraction of a pixel.
+static int adaptive_corner_detail(const Vector2 p_radius[4], int p_minimum, real_t p_oversampling) {
+	real_t max_radius = 0.0;
+	for (int i = 0; i < 4; i++) {
+		max_radius = MAX(max_radius, MAX(p_radius[i].x, p_radius[i].y));
+	}
+	max_radius *= MAX(p_oversampling, (real_t)1.0);
+	if (max_radius <= 0.25) {
+		return MAX(1, p_minimum);
+	}
+	const real_t max_error = 0.20;
+	const real_t cosine = CLAMP(1.0 - max_error / max_radius, -1.0, 1.0);
+	const real_t step_angle = Math::acos(cosine);
+	const int adaptive = step_angle > 0.0 ? (int)Math::ceil((Math::PI * 0.5) / step_angle) : 64;
+	return CLAMP(MAX(p_minimum, adaptive), 1, 64);
+}
+
+static Side outline_segment_side(int p_index, int p_detail) {
+	const int points_per_corner = p_detail + 1;
+	const int corner = p_index / points_per_corner;
+	const int corner_point = p_index % points_per_corner;
+	if (corner_point == p_detail) {
+		return EDGE_SIDE[corner];
+	}
+	return corner_point < points_per_corner / 2 ? CORNER_INCOMING[corner] : CORNER_OUTGOING[corner];
+}
+
+static void draw_uniform_outer_aa(RID p_ci, const Vector<Vector2> &p_exact, const Vector<Vector2> &p_expanded, const Color &p_color) {
+	if (p_exact.size() != p_expanded.size() || p_exact.size() < 3) {
+		return;
+	}
+	const Color transparent = transparent_color(p_color);
+	for (int i = 0; i < p_exact.size(); i++) {
+		const int next = (i + 1) % p_exact.size();
+		fill_quad_colors(p_ci,
+				p_expanded[i], p_expanded[next], p_exact[next], p_exact[i],
+				transparent, transparent, p_color, p_color);
+	}
+}
+
+static bool style_has_continuous_boundary(StyleBoxCSS::BorderStyle p_style) {
+	return p_style == StyleBoxCSS::BORDER_STYLE_SOLID || p_style == StyleBoxCSS::BORDER_STYLE_DOUBLE;
+}
+
+// Adds transparent coverage fringes to the outside and inside of a solid
+// rounded border. Dashed and dotted sides are left to their discrete dash
+// geometry so the AA fringe never paints through the intended gaps.
+static void draw_border_boundary_aa(RID p_ci,
+		const Vector<Vector2> &p_outer, const Vector<Vector2> &p_outer_expanded,
+		const Vector<Vector2> &p_inner, const Vector<Vector2> &p_inner_inset,
+		const Color p_colors[4], const StyleBoxCSS::BorderStyle p_styles[4], const real_t p_widths[4], int p_detail) {
+	if (p_outer.size() != p_outer_expanded.size() || p_inner.size() != p_inner_inset.size() || p_outer.size() != p_inner.size()) {
+		return;
+	}
+	for (int i = 0; i < p_outer.size(); i++) {
+		const int next = (i + 1) % p_outer.size();
+		const Side side = outline_segment_side(i, p_detail);
+		if (p_widths[side] <= 0.0 || !style_has_continuous_boundary(p_styles[side])) {
+			continue;
+		}
+		const Color color = p_colors[side];
+		const Color transparent = transparent_color(color);
+		fill_quad_colors(p_ci,
+				p_outer_expanded[i], p_outer_expanded[next], p_outer[next], p_outer[i],
+				transparent, transparent, color, color);
+		fill_quad_colors(p_ci,
+				p_inner[i], p_inner[next], p_inner_inset[next], p_inner_inset[i],
+				color, color, transparent, transparent);
+	}
+}
 
 // Fills the rounded-corner arcs of the border ring, splitting each quarter arc
 // between its two adjacent sides so per-side colors blend at the corner.
@@ -218,8 +328,26 @@ static bool point_in_rounded(const Rect2 &r, const Vector2 p_radius[4], const Ve
 	return dx * dx + dy * dy <= 1.0;
 }
 
-// Separable Gaussian blur over a single-channel coverage buffer.
-static void blur_coverage(Vector<float> &cov, int w, int h, float sigma) {
+// Four deterministic subpixel samples provide coverage antialiasing for sharp
+// shadows and for the CSS knockout/clip boundaries applied after a blur.
+static float pixel_rounded_coverage(const Rect2 &p_rect, const Vector2 p_radius[4], int p_x, int p_y) {
+	static const Vector2 offsets[4] = {
+		Vector2(0.25, 0.25), Vector2(0.75, 0.25),
+		Vector2(0.25, 0.75), Vector2(0.75, 0.75)
+	};
+	float coverage = 0.0f;
+	for (const Vector2 &offset : offsets) {
+		coverage += point_in_rounded(p_rect, p_radius, Vector2(p_x, p_y) + offset) ? 0.25f : 0.0f;
+	}
+	return coverage;
+}
+
+// Separable Gaussian blur over a single-channel coverage buffer. CSS outset
+// shadows are transparent outside their finite source mask, while inset
+// shadows are the complement of a hole in an infinitely opaque plane. The
+// caller-provided outside coverage is therefore part of the shadow semantics,
+// not merely an implementation detail at the texture boundary.
+static void blur_coverage(Vector<float> &cov, int w, int h, float sigma, float p_outside_coverage) {
 	if (sigma <= 0.0 || w <= 0 || h <= 0) {
 		return;
 	}
@@ -246,8 +374,9 @@ static void blur_coverage(Vector<float> &cov, int w, int h, float sigma) {
 		for (int x = 0; x < w; x++) {
 			float acc = 0.0;
 			for (int k = -radius; k <= radius; k++) {
-				const int sx = CLAMP(x + k, 0, w - 1);
-				acc += cp[y * w + sx] * kp[k + radius];
+				const int sx = x + k;
+				const float sample = sx < 0 || sx >= w ? p_outside_coverage : cp[y * w + sx];
+				acc += sample * kp[k + radius];
 			}
 			tp[y * w + x] = acc;
 		}
@@ -258,10 +387,48 @@ static void blur_coverage(Vector<float> &cov, int w, int h, float sigma) {
 		for (int x = 0; x < w; x++) {
 			float acc = 0.0;
 			for (int k = -radius; k <= radius; k++) {
-				const int sy = CLAMP(y + k, 0, h - 1);
-				acc += tp[sy * w + x] * kp[k + radius];
+				const int sy = y + k;
+				const float sample = sy < 0 || sy >= h ? p_outside_coverage : tp[sy * w + x];
+				acc += sample * kp[k + radius];
 			}
 			op[y * w + x] = acc;
+		}
+	}
+}
+
+// CSS Backgrounds 3, 6.1.1. A growing shadow corner does not simply use
+// radius + spread when the original radius is smaller than the growth. The
+// cubic adjustment preserves a sharp corner at radius zero and transitions
+// continuously to the ordinary addition rule.
+static real_t css_shadow_radius(real_t p_radius, real_t p_growth) {
+	real_t growth = p_growth;
+	if (growth > 0.0 && p_radius < growth) {
+		const real_t ratio = p_radius / growth;
+		growth *= 1.0 + Math::pow(ratio - 1.0, 3.0);
+	}
+	return MAX(p_radius + growth, 0.0);
+}
+
+static void css_shadow_radii(const Vector2 p_source[4], real_t p_growth, const Size2 &p_size, Vector2 r_shadow[4]) {
+	for (int i = 0; i < 4; i++) {
+		r_shadow[i] = Vector2(css_shadow_radius(p_source[i].x, p_growth), css_shadow_radius(p_source[i].y, p_growth));
+	}
+
+	// Apply the CSS overlapping-curves reduction to the resulting shadow box.
+	real_t scale = 1.0;
+	auto fit = [&scale](real_t p_span, real_t p_a, real_t p_b) {
+		const real_t sum = p_a + p_b;
+		if (sum > 0.0) {
+			scale = MIN(scale, p_span / sum);
+		}
+	};
+	fit(p_size.x, r_shadow[CORNER_TOP_LEFT].x, r_shadow[CORNER_TOP_RIGHT].x);
+	fit(p_size.x, r_shadow[CORNER_BOTTOM_LEFT].x, r_shadow[CORNER_BOTTOM_RIGHT].x);
+	fit(p_size.y, r_shadow[CORNER_TOP_LEFT].y, r_shadow[CORNER_BOTTOM_LEFT].y);
+	fit(p_size.y, r_shadow[CORNER_TOP_RIGHT].y, r_shadow[CORNER_BOTTOM_RIGHT].y);
+	if (scale < 1.0) {
+		for (int i = 0; i < 4; i++) {
+			r_shadow[i] *= scale;
 		}
 	}
 }
@@ -297,9 +464,7 @@ static void draw_outset_shadow(RID p_ci, const Rect2 &p_border_box, const Vector
 		return;
 	}
 	Vector2 srad[4];
-	for (int i = 0; i < 4; i++) {
-		srad[i] = (p_radius[i] + Vector2(spread, spread)).maxf(0.0);
-	}
+	css_shadow_radii(p_radius, spread, shape.size, srad);
 
 	const int pad = (int)Math::ceil(sigma * 3.0) + 2;
 	const int w = (int)Math::ceil(shape.size.x) + pad * 2;
@@ -308,9 +473,10 @@ static void draw_outset_shadow(RID p_ci, const Rect2 &p_border_box, const Vector
 		return;
 	}
 
-	const String key = vformat("o|%d|%d|%.2f|%.2f|%s|%.2f,%.2f;%.2f,%.2f;%.2f,%.2f;%.2f,%.2f",
-			w, h, blur, spread, s->get_color().to_html(),
-			srad[0].x, srad[0].y, srad[1].x, srad[1].y, srad[2].x, srad[2].y, srad[3].x, srad[3].y);
+	const String key = vformat("o|%d|%d|%.2f|%.2f|%.2f,%.2f|%s|%.2f,%.2f;%.2f,%.2f;%.2f,%.2f;%.2f,%.2f|%.2f,%.2f;%.2f,%.2f;%.2f,%.2f;%.2f,%.2f",
+			w, h, blur, spread, s->get_offset().x, s->get_offset().y, s->get_color().to_html(),
+			srad[0].x, srad[0].y, srad[1].x, srad[1].y, srad[2].x, srad[2].y, srad[3].x, srad[3].y,
+			p_radius[0].x, p_radius[0].y, p_radius[1].x, p_radius[1].y, p_radius[2].x, p_radius[2].y, p_radius[3].x, p_radius[3].y);
 	Ref<ImageTexture> tex;
 	if (const Ref<ImageTexture> *found = r_cache.getptr(key)) {
 		tex = *found;
@@ -321,10 +487,23 @@ static void draw_outset_shadow(RID p_ci, const Rect2 &p_border_box, const Vector
 		const Rect2 local = Rect2(pad, pad, shape.size.x, shape.size.y);
 		for (int y = 0; y < h; y++) {
 			for (int x = 0; x < w; x++) {
-				cp[y * w + x] = point_in_rounded(local, srad, Vector2(x + 0.5, y + 0.5)) ? 1.0f : 0.0f;
+				cp[y * w + x] = sigma <= 0.0
+						? pixel_rounded_coverage(local, srad, x, y)
+						: (point_in_rounded(local, srad, Vector2(x + 0.5, y + 0.5)) ? 1.0f : 0.0f);
 			}
 		}
-		blur_coverage(cov, w, h, sigma);
+		blur_coverage(cov, w, h, sigma, 0.0f);
+
+		// CSS outer shadows are knocked out inside the element's rounded
+		// border box. Relying on the background to cover this area is wrong for
+		// transparent and translucent elements.
+		const Vector2 texture_pos = shape.position - Vector2(pad, pad) + s->get_offset();
+		const Rect2 knockout = Rect2(p_border_box.position - texture_pos, p_border_box.size);
+		for (int y = 0; y < h; y++) {
+			for (int x = 0; x < w; x++) {
+				cp[y * w + x] *= 1.0f - pixel_rounded_coverage(knockout, p_radius, x, y);
+			}
+		}
 		tex = coverage_to_texture(cov, w, h, s->get_color());
 		if (r_cache.size() > 8) {
 			r_cache.clear();
@@ -360,13 +539,13 @@ static void draw_inset_shadow(RID p_ci, const Rect2 &p_padding_box, const Vector
 	if (const Ref<ImageTexture> *found = r_cache.getptr(key)) {
 		tex = *found;
 	} else {
-		// Inner hole: padding box shrunk by spread, shifted by offset.
-		Rect2 hole = box.grow(-spread);
-		hole.position += s->get_offset() - box.position; // into local space
+		// Inner hole: padding box shrunk by spread, shifted by offset. CSS
+		// floors a contracted width/height at zero instead of allowing a Rect2
+		// with negative dimensions.
+		const Size2 hole_size(MAX(box.size.x - spread * 2.0, 0.0), MAX(box.size.y - spread * 2.0, 0.0));
+		const Rect2 hole = Rect2(Vector2(spread, spread) + s->get_offset(), hole_size);
 		Vector2 hrad[4];
-		for (int i = 0; i < 4; i++) {
-			hrad[i] = (p_inner_radius[i] - Vector2(spread, spread)).maxf(0.0);
-		}
+		css_shadow_radii(p_inner_radius, -spread, hole.size, hrad);
 		const Rect2 local_box = Rect2(0, 0, box.size.x, box.size.y);
 
 		Vector<float> cov;
@@ -374,18 +553,17 @@ static void draw_inset_shadow(RID p_ci, const Rect2 &p_padding_box, const Vector
 		float *cp = cov.ptrw();
 		for (int y = 0; y < h; y++) {
 			for (int x = 0; x < w; x++) {
-				const Vector2 p(x + 0.5, y + 0.5);
-				cp[y * w + x] = point_in_rounded(hole, hrad, p) ? 0.0f : 1.0f;
+				cp[y * w + x] = sigma <= 0.0
+						? 1.0f - pixel_rounded_coverage(hole, hrad, x, y)
+						: (point_in_rounded(hole, hrad, Vector2(x + 0.5, y + 0.5)) ? 0.0f : 1.0f);
 			}
 		}
-		blur_coverage(cov, w, h, sigma);
+		blur_coverage(cov, w, h, sigma, 1.0f);
 
 		// Clip to the padding box's rounded shape.
 		for (int y = 0; y < h; y++) {
 			for (int x = 0; x < w; x++) {
-				if (!point_in_rounded(local_box, p_inner_radius, Vector2(x + 0.5, y + 0.5))) {
-					cp[y * w + x] = 0.0f;
-				}
+				cp[y * w + x] *= pixel_rounded_coverage(local_box, p_inner_radius, x, y);
 			}
 		}
 		tex = coverage_to_texture(cov, w, h, s->get_color());
@@ -427,12 +605,20 @@ static void inner_radii(const Vector2 p_radius[4], const real_t p_border[4], Vec
 }
 
 Rect2 StyleBoxCSS::get_draw_rect(const Rect2 &p_rect) const {
-	Rect2 draw_rect = p_rect;
+	const bool has_radius = corner_radius[0].length() > 0 || corner_radius[1].length() > 0 || corner_radius[2].length() > 0 || corner_radius[3].length() > 0;
+	Rect2 draw_rect = anti_aliased && has_radius ? p_rect.grow(aa_size * 0.5) : p_rect;
 	for (const Ref<WebBoxShadow> &s : box_shadows) {
 		if (s.is_null() || s->is_inset()) {
 			continue;
 		}
-		Rect2 sr = p_rect.grow(s->get_spread() + s->get_blur_radius());
+		Rect2 sr = p_rect.grow(s->get_spread());
+		if (sr.size.x <= 0.0 || sr.size.y <= 0.0) {
+			continue;
+		}
+		// The Gaussian kernel is truncated at three sigma and sigma is half
+		// the CSS blur radius. Include the same tail used by the raster mask so
+		// canvas culling cannot trim a valid shadow.
+		sr = sr.grow(Math::ceil(s->get_blur_radius() * 1.5) + 2.0);
 		sr.position += s->get_offset();
 		draw_rect = draw_rect.merge(sr);
 	}
@@ -451,6 +637,12 @@ void StyleBoxCSS::draw(RID p_ci, const Rect2 &p_rect) const {
 	}
 	const bool has_border = eb[0] > 0 || eb[1] > 0 || eb[2] > 0 || eb[3] > 0;
 	const bool has_radius = corner_radius[0].length() > 0 || corner_radius[1].length() > 0 || corner_radius[2].length() > 0 || corner_radius[3].length() > 0;
+	real_t oversampling = TextServer::get_current_drawn_item_oversampling();
+	if (oversampling <= 0.0) {
+		oversampling = 1.0;
+	}
+	const int render_corner_detail = adaptive_corner_detail(corner_radius, corner_detail, oversampling);
+	const real_t aa_half_width = anti_aliased && has_radius ? aa_size * 0.5 / oversampling : 0.0;
 
 	const Rect2 padding_box = get_padding_box(border_box);
 	const Rect2 content_box = get_content_box(border_box);
@@ -465,19 +657,9 @@ void StyleBoxCSS::draw(RID p_ci, const Rect2 &p_rect) const {
 		if (s.is_null() || s->is_inset() || s->get_color().a <= 0.0) {
 			continue;
 		}
-		if (s->get_blur_radius() > 0.0) {
-			draw_outset_shadow(p_ci, border_box, corner_radius, s, corner_detail, shadow_textures);
-		} else {
-			Rect2 sr = border_box.grow(s->get_spread());
-			sr.position += s->get_offset();
-			Vector2 srad[4];
-			for (int j = 0; j < 4; j++) {
-				srad[j] = (corner_radius[j] + Vector2(s->get_spread(), s->get_spread())).maxf(0.0);
-			}
-			Vector<Vector2> outline;
-			build_rounded_outline(sr, srad, corner_detail, outline);
-			fill_convex(p_ci, outline, s->get_color());
-		}
+		// Sharp and blurred shadows share the same coverage/knockout path so a
+		// zero blur cannot leak through a transparent element either.
+		draw_outset_shadow(p_ci, border_box, corner_radius, s, render_corner_detail, shadow_textures);
 	}
 
 	// 2. Background, clipped to the requested box. The gradient (CSS
@@ -507,9 +689,16 @@ void StyleBoxCSS::draw(RID p_ci, const Rect2 &p_rect) const {
 				break;
 		}
 		Vector<Vector2> outline;
-		build_rounded_outline(bg_rect, bg_rad, corner_detail, outline);
+		build_rounded_outline(bg_rect, bg_rad, render_corner_detail, outline);
 		if (background_color.a > 0.0) {
 			fill_convex(p_ci, outline, background_color);
+			if (aa_half_width > 0.0) {
+				Vector2 expanded_radius[4];
+				offset_radii(bg_rad, aa_half_width, expanded_radius);
+				Vector<Vector2> expanded_outline;
+				build_rounded_outline(bg_rect.grow(aa_half_width), expanded_radius, render_corner_detail, expanded_outline);
+				draw_uniform_outer_aa(p_ci, outline, expanded_outline, background_color);
+			}
 		}
 		if (has_gradient && bg_rect.size.x > 0 && bg_rect.size.y > 0) {
 			// CSS angle convention: 0deg points up, angles rotate clockwise.
@@ -547,12 +736,12 @@ void StyleBoxCSS::draw(RID p_ci, const Rect2 &p_rect) const {
 	if (has_border) {
 		Vector<Vector2> outer;
 		Vector<Vector2> inner;
-		build_rounded_outline(border_box, corner_radius, corner_detail, outer);
-		build_rounded_outline(padding_box, inner_rad, corner_detail, inner);
+		build_rounded_outline(border_box, corner_radius, render_corner_detail, outer);
+		build_rounded_outline(padding_box, inner_rad, render_corner_detail, inner);
 
-		draw_corner_arcs(p_ci, outer, inner, border_color, border_style, corner_detail);
+		draw_corner_arcs(p_ci, outer, inner, border_color, border_style, render_corner_detail);
 
-		const int pc = corner_detail + 1;
+		const int pc = render_corner_detail + 1;
 		for (int c = 0; c < 4; c++) {
 			const Side side = EDGE_SIDE[c];
 			if (eb[side] <= 0.0 || border_style[side] == BORDER_STYLE_NONE) {
@@ -561,6 +750,21 @@ void StyleBoxCSS::draw(RID p_ci, const Rect2 &p_rect) const {
 			const int last = c * pc + (pc - 1);
 			const int next = ((c + 1) % 4) * pc;
 			draw_edge(p_ci, outer[last], outer[next], inner[last], inner[next], border_color[side], border_style[side], eb[side]);
+		}
+
+		if (aa_half_width > 0.0) {
+			Vector2 outer_expanded_radius[4];
+			Vector2 inner_inset_radius[4];
+			offset_radii(corner_radius, aa_half_width, outer_expanded_radius);
+			offset_radii(inner_rad, -aa_half_width, inner_inset_radius);
+			Vector<Vector2> outer_expanded;
+			Vector<Vector2> inner_inset;
+			build_rounded_outline(border_box.grow(aa_half_width), outer_expanded_radius, render_corner_detail, outer_expanded);
+			Rect2 inner_inset_rect = padding_box.grow(-aa_half_width);
+			if (inner_inset_rect.size.x > 0.0 && inner_inset_rect.size.y > 0.0) {
+				build_rounded_outline(inner_inset_rect, inner_inset_radius, render_corner_detail, inner_inset);
+				draw_border_boundary_aa(p_ci, outer, outer_expanded, inner, inner_inset, border_color, border_style, eb, render_corner_detail);
+			}
 		}
 	}
 }
@@ -781,12 +985,30 @@ StyleBoxCSS::BoxSizing StyleBoxCSS::get_box_sizing() const {
 }
 
 void StyleBoxCSS::set_corner_detail(int p_corner_detail) {
-	corner_detail = CLAMP(p_corner_detail, 1, 20);
+	corner_detail = CLAMP(p_corner_detail, 1, 64);
 	emit_changed();
 }
 
 int StyleBoxCSS::get_corner_detail() const {
 	return corner_detail;
+}
+
+void StyleBoxCSS::set_anti_aliased(bool p_anti_aliased) {
+	anti_aliased = p_anti_aliased;
+	emit_changed();
+}
+
+bool StyleBoxCSS::is_anti_aliased() const {
+	return anti_aliased;
+}
+
+void StyleBoxCSS::set_aa_size(real_t p_size) {
+	aa_size = MAX((real_t)0.01, p_size);
+	emit_changed();
+}
+
+real_t StyleBoxCSS::get_aa_size() const {
+	return aa_size;
 }
 
 void StyleBoxCSS::set_box_shadows(const TypedArray<WebBoxShadow> &p_shadows) {
@@ -857,6 +1079,10 @@ void StyleBoxCSS::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("set_corner_detail", "detail"), &StyleBoxCSS::set_corner_detail);
 	ClassDB::bind_method(D_METHOD("get_corner_detail"), &StyleBoxCSS::get_corner_detail);
+	ClassDB::bind_method(D_METHOD("set_anti_aliased", "anti_aliased"), &StyleBoxCSS::set_anti_aliased);
+	ClassDB::bind_method(D_METHOD("is_anti_aliased"), &StyleBoxCSS::is_anti_aliased);
+	ClassDB::bind_method(D_METHOD("set_aa_size", "size"), &StyleBoxCSS::set_aa_size);
+	ClassDB::bind_method(D_METHOD("get_aa_size"), &StyleBoxCSS::get_aa_size);
 
 	ClassDB::bind_method(D_METHOD("set_box_shadows", "box_shadows"), &StyleBoxCSS::set_box_shadows);
 	ClassDB::bind_method(D_METHOD("get_box_shadows"), &StyleBoxCSS::get_box_shadows);
@@ -893,7 +1119,11 @@ void StyleBoxCSS::_bind_methods() {
 	ADD_PROPERTYI(PropertyInfo(Variant::VECTOR2, "corner_radius_top_right", PROPERTY_HINT_NONE, "suffix:px"), "set_corner_radius", "get_corner_radius", CORNER_TOP_RIGHT);
 	ADD_PROPERTYI(PropertyInfo(Variant::VECTOR2, "corner_radius_bottom_right", PROPERTY_HINT_NONE, "suffix:px"), "set_corner_radius", "get_corner_radius", CORNER_BOTTOM_RIGHT);
 	ADD_PROPERTYI(PropertyInfo(Variant::VECTOR2, "corner_radius_bottom_left", PROPERTY_HINT_NONE, "suffix:px"), "set_corner_radius", "get_corner_radius", CORNER_BOTTOM_LEFT);
-	ADD_PROPERTY(PropertyInfo(Variant::INT, "corner_detail", PROPERTY_HINT_RANGE, "1,20,1"), "set_corner_detail", "get_corner_detail");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "corner_detail", PROPERTY_HINT_RANGE, "1,64,1"), "set_corner_detail", "get_corner_detail");
+
+	ADD_GROUP("Anti Aliasing", "anti_aliasing_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "anti_aliasing"), "set_anti_aliased", "is_anti_aliased");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "anti_aliasing_size", PROPERTY_HINT_RANGE, "0.01,10,0.001,suffix:px"), "set_aa_size", "get_aa_size");
 
 	ADD_GROUP("Padding", "padding_");
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "padding_left", PROPERTY_HINT_RANGE, "0,100,0.1,or_greater,suffix:px"), "set_padding", "get_padding", SIDE_LEFT);

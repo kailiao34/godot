@@ -97,6 +97,8 @@ private:
 	BoxSizing box_sizing = BOX_SIZING_CONTENT_BOX;
 
 	int corner_detail = 8;
+	bool anti_aliased = true;
+	real_t aa_size = 1.0;
 
 	Vector<Ref<WebBoxShadow>> box_shadows;
 
@@ -149,6 +151,10 @@ public:
 
 	void set_corner_detail(int p_corner_detail);
 	int get_corner_detail() const;
+	void set_anti_aliased(bool p_anti_aliased);
+	bool is_anti_aliased() const;
+	void set_aa_size(real_t p_size);
+	real_t get_aa_size() const;
 
 	void set_box_shadows(const TypedArray<WebBoxShadow> &p_shadows);
 	TypedArray<WebBoxShadow> get_box_shadows() const;

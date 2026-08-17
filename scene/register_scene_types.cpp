@@ -504,6 +504,7 @@ void register_scene_types() {
 	GDREGISTER_CLASS(WebSVGText);
 	GDREGISTER_CLASS(WebSVGGroup);
 	GDREGISTER_CLASS(WebSVGAnimation);
+	GDREGISTER_CLASS(WebSVGRaw);
 	GDREGISTER_CLASS(ButtonGroup);
 
 	OS::get_singleton()->yield(); // may take time to init
