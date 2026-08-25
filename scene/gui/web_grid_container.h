@@ -37,9 +37,8 @@ class InputEvent;
 
 // A Container that reproduces the CSS Grid layout model in the browser.
 // Child controls are placed in a grid of `row_count` x `column_count` cells,
-// filled in document order, row-major (like CSS auto-placement with the
-// default `grid-auto-flow: row`). Track sizes and alignment behave like the
-// equivalent CSS properties.
+// filled in document order using row-major logical-cell auto-placement. Track sizes
+// and alignment behave like the equivalent CSS properties.
 class WebGridContainer : public Container {
 	GDCLASS(WebGridContainer, Container);
 
@@ -101,13 +100,6 @@ public:
 	struct ChildAlign {
 		SelfAlign justify_self = SELF_AUTO;
 		SelfAlign align_self = SELF_AUTO;
-		// grid-column / grid-row. `start` is a 1-indexed grid line; 0 means `auto`
-		// (let the auto-placement algorithm choose). `span` is the number of tracks
-		// the item occupies (CSS `span N`), minimum 1.
-		int column_start = 0;
-		int column_span = 1;
-		int row_start = 0;
-		int row_span = 1;
 	};
 
 	// Where a child ends up after auto-placement, in 0-indexed track coordinates.
@@ -146,6 +138,27 @@ private:
 
 	Vector<ChildAlign> child_aligns;
 
+	// The sole source of grid merge topology. Children occupy these logical cells but
+	// never own, create, or remove them, so topology survives every child lifecycle.
+	Vector<Rect2i> merged_cell_rects;
+
+	// Lazily rebuilt spatial index for merged cells. The boundary masks make drawing,
+	// gap generation and hit-testing O(rows * columns) instead of scanning every merge
+	// for every cell/boundary. The grid is capped to a small number of tracks in the
+	// inspector, so dense masks are both faster and smaller than a tree structure.
+	mutable bool merge_cache_dirty = true;
+	mutable Vector<int> merged_cell_owner_cache;
+	mutable Vector<bool> merged_vertical_interior_cache;
+	mutable Vector<bool> merged_horizontal_interior_cache;
+	mutable int merge_cache_columns = 0;
+	mutable int merge_cache_rows = 0;
+
+	// Availability signals are edge-triggered. Defer updates while topology mutations
+	// and selection changes are being committed so scripts never see transient states.
+	bool merge_operation_in_progress = false;
+	bool last_merge_available = false;
+	bool last_unmerge_available = false;
+
 	// Effective track counts after auto-placement: the explicit count grows to fit
 	// items whose placement (start + span, or auto-flow overflow) needs implicit
 	// tracks. Implicit tracks are `auto`-sized. Updated by _resort().
@@ -183,9 +196,8 @@ private:
 	int _get_sortable_child_count() const;
 	void _sync_child_aligns();
 
-	// Full CSS grid auto-placement (grid-auto-flow: row, sparse). Fills r_areas
-	// (one entry per sortable child) and reports the effective track counts needed
-	// to hold every item, including implicit rows/columns.
+	// Row-major logical-cell auto-placement. Fills r_areas (one entry per sortable
+	// child) and reports the effective track counts, including implicit rows.
 	void _place_items(Vector<GridArea> &r_areas, int &r_cols, int &r_rows) const;
 
 	// Per-track content-based minimum on the given axis, span-aware: an item that
@@ -217,6 +229,11 @@ private:
 
 	// Internal overlay used only at runtime to capture mouse input above the
 	// child controls and to draw the grid lines / cell selection. Created lazily.
+	// Hosts with a flat logical canvas may provide an external parent so the
+	// overlay can participate in their scene-tree paint order instead of using a
+	// canvas-global maximum z-index.
+	Control *runtime_overlay_parent = nullptr;
+	Control *interaction_root = nullptr;
 	Control *interaction_overlay = nullptr;
 	Button *merge_button = nullptr;
 	void _ensure_overlay();
@@ -240,8 +257,11 @@ private:
 	void _apply_boundary_target(int p_boundary, float p_target_size_i);
 	void _set_boundary_side(int p_index, float p_target_px); // helper for one side.
 
-	// Merged areas (children whose placed span is > 1 on either axis), in track
-	// coordinates (pos = col,row; size = col_span,row_span).
+	void _invalidate_merge_cache();
+	void _rebuild_merge_cache(int p_columns, int p_rows) const;
+	void _update_merge_availability();
+	bool _selection_is_inside_grid() const;
+	// Grid-owned merged areas in track coordinates (pos = col,row; size = span).
 	Vector<Rect2i> _merged_rects() const;
 	// Grow p_rect so it fully encloses every merged area it overlaps (so a selection
 	// always snaps to whole merged cells). Repeated until stable.
@@ -314,16 +334,6 @@ public:
 	void set_child_align_self(int p_index, SelfAlign p_align);
 	SelfAlign get_child_align_self(int p_index) const;
 
-	// grid-column / grid-row per child (start is 1-indexed, 0 = auto; span >= 1).
-	void set_child_column_start(int p_index, int p_start);
-	int get_child_column_start(int p_index) const;
-	void set_child_column_span(int p_index, int p_span);
-	int get_child_column_span(int p_index) const;
-	void set_child_row_start(int p_index, int p_start);
-	int get_child_row_start(int p_index) const;
-	void set_child_row_span(int p_index, int p_span);
-	int get_child_row_span(int p_index) const;
-
 	// Overlay visibility. DRAW_GRID_NEVER also turns off every grid-editing
 	// interaction, so the node behaves like any other container.
 	void set_draw_grid(DrawGrid p_mode);
@@ -337,6 +347,9 @@ public:
 	// editor offers at edit time).
 	void set_runtime_interactive(bool p_enabled);
 	bool is_runtime_interactive() const;
+	void set_runtime_overlay_parent(Control *p_parent);
+	Control *get_runtime_overlay_parent() const;
+	Control *get_runtime_overlay_control() const;
 	void set_show_merge_button(bool p_enabled);
 	bool is_show_merge_button() const;
 
@@ -350,6 +363,7 @@ public:
 	float get_axis_available(bool p_is_columns) const;
 	int get_effective_column_count() const;
 	int get_effective_row_count() const;
+	Rect2i get_child_resolved_grid_rect(int p_index) const;
 
 	// --- Interaction bridge (local container coordinates) ---
 	// These drive grid-line dragging and cell selection. The editor plugin and
@@ -374,17 +388,21 @@ public:
 	void clear_cell_selection();
 	bool has_cell_selection() const;
 	Rect2i get_selection_rect() const; // pos = top-left cell, size = (cols, rows).
+	bool can_merge_selected_cells() const;
+	bool can_unmerge_selected_cells() const;
 
-	// Merge API: applies the current cell selection as a span to the first child
-	// occupying the selection's top-left cell (creating an explicit placement),
-	// then clears the selection. Returns the merged child index, or -1 if there
-	// is nothing to merge. Emits `cells_merged`.
+	// Merge API: records the selected region on the grid independently of children.
+	// Returns the child index, -2 for a successful childless merge, or -1 on failure.
+	// A single-cell selection is always rejected. Emits `cells_merged`.
 	int merge_selected_cells();
 
-	// Unmerge API: resets the span of every merged child overlapped by the current
-	// selection back to a single cell (keeping its position). Returns the number of
-	// children unmerged. Emits `cells_unmerged` per child.
+	// Unmerge API: removes every grid-owned merge overlapped by the selection without
+	// changing child properties. Returns the number of logical merged regions removed.
 	int unmerge_selected_cells();
+
+	// Serialized grid merge topology.
+	void set_merged_cell_rects(const Array &p_rects);
+	Array get_merged_cell_rects() const;
 
 	// Merged areas as an Array of Rect2i (pos = col,row; size = col_span,row_span).
 	// Used by the editor / overlay drawing to skip interior grid lines, and to test
@@ -405,8 +423,8 @@ public:
 	Array get_gap_rects() const;
 
 	// Export the current grid as a CSS string (grid-template-*, gap, and per-child
-	// grid-column/grid-row/justify-self/align-self). Children whose placement and
-	// alignment are all default are omitted. import_css() applies a CSS string back.
+	// justify-self/align-self). Children with default alignment are omitted.
+	// import_css() applies a CSS string back.
 	String export_css() const;
 	void import_css(const String &p_css);
 

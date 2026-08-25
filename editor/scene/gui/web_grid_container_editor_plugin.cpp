@@ -41,25 +41,6 @@
 #include "scene/gui/web_grid_overlay.h"
 
 //
-// Helpers.
-//
-
-static int _gather_sortable_children(WebGridContainer *p_node, Vector<Control *> *r_children) {
-	int count = 0;
-	for (int i = 0; i < p_node->get_child_count(); i++) {
-		Control *c = Object::cast_to<Control>(p_node->get_child(i));
-		if (!c || c->is_set_as_top_level()) {
-			continue;
-		}
-		if (r_children) {
-			r_children->push_back(c);
-		}
-		count++;
-	}
-	return count;
-}
-
-//
 // WebGridContainerEditorPlugin (canvas grid-line editing + cell selection).
 //
 // The WebGridContainer's own properties (counts, tracks, gaps, alignment, per-child
@@ -173,37 +154,18 @@ void WebGridContainerEditorPlugin::_merge_selection() {
 	if (!edited || !edited->is_grid_editable() || !edited->has_cell_selection()) {
 		return;
 	}
-	Vector<Control *> kids;
-	int n = _gather_sortable_children(edited, &kids);
-	Vector<int> ocs, ocsp, ors, orsp;
-	ocs.resize(n);
-	ocsp.resize(n);
-	ors.resize(n);
-	orsp.resize(n);
-	for (int j = 0; j < n; j++) {
-		ocs.write[j] = edited->get_child_column_start(j);
-		ocsp.write[j] = edited->get_child_column_span(j);
-		ors.write[j] = edited->get_child_row_start(j);
-		orsp.write[j] = edited->get_child_row_span(j);
-	}
+	Array old_merged_rects = edited->get_merged_cell_rects();
 
 	int merged = edited->merge_selected_cells();
-	if (merged < 0) {
+	if (merged == -1) {
 		return;
 	}
+	Array new_merged_rects = edited->get_merged_cell_rects();
 
 	EditorUndoRedoManager *ur = EditorUndoRedoManager::get_singleton();
 	ur->create_action(TTR("Merge Grid Cells"));
-	for (int j = 0; j < n; j++) {
-		ur->add_do_method(edited, "set_child_column_start", j, edited->get_child_column_start(j));
-		ur->add_do_method(edited, "set_child_column_span", j, edited->get_child_column_span(j));
-		ur->add_do_method(edited, "set_child_row_start", j, edited->get_child_row_start(j));
-		ur->add_do_method(edited, "set_child_row_span", j, edited->get_child_row_span(j));
-		ur->add_undo_method(edited, "set_child_column_start", j, ocs[j]);
-		ur->add_undo_method(edited, "set_child_column_span", j, ocsp[j]);
-		ur->add_undo_method(edited, "set_child_row_start", j, ors[j]);
-		ur->add_undo_method(edited, "set_child_row_span", j, orsp[j]);
-	}
+	ur->add_do_method(edited, "set_merged_cell_rects", new_merged_rects);
+	ur->add_undo_method(edited, "set_merged_cell_rects", old_merged_rects);
 	ur->commit_action(false);
 	update_overlays();
 	_update_toolbar();
@@ -213,55 +175,21 @@ void WebGridContainerEditorPlugin::_unmerge_selection() {
 	if (!edited || !edited->is_grid_editable() || !edited->has_cell_selection()) {
 		return;
 	}
-	Vector<Control *> kids;
-	int n = _gather_sortable_children(edited, &kids);
-	Vector<int> ocs, ocsp, ors, orsp;
-	ocs.resize(n);
-	ocsp.resize(n);
-	ors.resize(n);
-	orsp.resize(n);
-	for (int j = 0; j < n; j++) {
-		ocs.write[j] = edited->get_child_column_start(j);
-		ocsp.write[j] = edited->get_child_column_span(j);
-		ors.write[j] = edited->get_child_row_start(j);
-		orsp.write[j] = edited->get_child_row_span(j);
-	}
+	Array old_merged_rects = edited->get_merged_cell_rects();
 
 	int count = edited->unmerge_selected_cells();
 	if (count <= 0) {
 		return;
 	}
+	Array new_merged_rects = edited->get_merged_cell_rects();
 
 	EditorUndoRedoManager *ur = EditorUndoRedoManager::get_singleton();
 	ur->create_action(TTR("Unmerge Grid Cells"));
-	for (int j = 0; j < n; j++) {
-		ur->add_do_method(edited, "set_child_column_start", j, edited->get_child_column_start(j));
-		ur->add_do_method(edited, "set_child_column_span", j, edited->get_child_column_span(j));
-		ur->add_do_method(edited, "set_child_row_start", j, edited->get_child_row_start(j));
-		ur->add_do_method(edited, "set_child_row_span", j, edited->get_child_row_span(j));
-		ur->add_undo_method(edited, "set_child_column_start", j, ocs[j]);
-		ur->add_undo_method(edited, "set_child_column_span", j, ocsp[j]);
-		ur->add_undo_method(edited, "set_child_row_start", j, ors[j]);
-		ur->add_undo_method(edited, "set_child_row_span", j, orsp[j]);
-	}
+	ur->add_do_method(edited, "set_merged_cell_rects", new_merged_rects);
+	ur->add_undo_method(edited, "set_merged_cell_rects", old_merged_rects);
 	ur->commit_action(false);
 	update_overlays();
 	_update_toolbar();
-}
-
-bool WebGridContainerEditorPlugin::_selection_has_merge() const {
-	if (!edited || !edited->has_cell_selection()) {
-		return false;
-	}
-	Rect2i sel = edited->get_selection_rect();
-	Array merged = edited->get_merged_rects();
-	for (int i = 0; i < merged.size(); i++) {
-		Rect2i m = merged[i];
-		if (sel.intersects(m)) {
-			return true;
-		}
-	}
-	return false;
 }
 
 void WebGridContainerEditorPlugin::_update_toolbar() {
@@ -277,13 +205,11 @@ void WebGridContainerEditorPlugin::_update_toolbar() {
 	if (!has_node) {
 		return;
 	}
-	Rect2i sel = edited->get_selection_rect();
-	bool multi = edited->has_cell_selection() && (sel.size.x * sel.size.y > 1);
 	if (merge_button) {
-		merge_button->set_disabled(!multi);
+		merge_button->set_disabled(!edited->can_merge_selected_cells());
 	}
 	if (unmerge_button) {
-		unmerge_button->set_disabled(!_selection_has_merge());
+		unmerge_button->set_disabled(!edited->can_unmerge_selected_cells());
 	}
 }
 

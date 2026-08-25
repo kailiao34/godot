@@ -4,9 +4,9 @@
 		A container that arranges its children using the browser's CSS Grid layout model.
 	</brief_description>
 	<description>
-		[WebGridContainer] lays out its child controls in a grid of [member row_count] by [member column_count] cells, reproducing the behavior of a CSS [code]display: grid[/code] element. Children are placed in document order using the full CSS auto-placement algorithm (like [code]grid-auto-flow: row[/code]); rows are added implicitly when there are more children than explicit cells.
+		[WebGridContainer] lays out its child controls in a grid of [member row_count] by [member column_count] cells. Children are placed in document order using row-major automatic placement; rows are added implicitly when there are more children than logical cells.
 		Each row and column track is sized with a unit matching CSS: [constant UNIT_AUTO] (content based), [constant UNIT_PX] (pixels), [constant UNIT_PERCENT] (percentage of the container size on that axis) and [constant UNIT_FR] (a fraction of the leftover space). Track sizes are set with [method set_column_track_unit]/[method set_column_track_value] and the row equivalents.
-		Each child can span several tracks and/or be placed explicitly, like CSS [code]grid-column[/code]/[code]grid-row[/code], via [method set_child_column_start]/[method set_child_column_span] and the row equivalents.
+		Children always flow automatically through the grid's logical cells. Merge topology is stored only in [member merged_cell_rects], so it remains unchanged when children are added, removed, reordered, or moved.
 		[member justify_items]/[member align_items] set the default alignment of every child within its area, and can be overridden per child with [method set_child_justify_self]/[method set_child_align_self]. [member justify_content]/[member align_content] distribute leftover space between and around the tracks. [member column_gap]/[member row_gap] add gutters between tracks.
 		The grid lines can be dragged and cells can be selected and merged (the editor offers this on the 2D canvas; setting [member runtime_interactive] enables the same behavior at runtime). All edit/runtime interaction is exposed as methods ([method find_line_at], [method begin_line_drag], [method select_cell], [method merge_selected_cells], etc.) so it can be scripted and tested.
 		All property defaults match the CSS initial values. Note that, unlike a CSS box, a Godot [Control] cannot be smaller than its content's minimum size, so the container grows to fit its children instead of letting them overflow a fixed size.
@@ -28,6 +28,18 @@
 			<param index="2" name="ctrl" type="bool" default="false" />
 			<description>
 				Starts dragging the grid line between track [param boundary] and [param boundary] + 1 (a column boundary when [param is_columns] is [code]true[/code], otherwise a row boundary). When [param ctrl] is [code]true[/code] the whole axis is scaled proportionally. Follow with [method update_line_drag] and [method end_line_drag].
+			</description>
+		</method>
+		<method name="can_merge_selected_cells" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] when the current selection is inside the grid, covers more than one cell, and grid editing is enabled. Connect [signal merge_available_changed] to update a custom Merge button without polling.
+			</description>
+		</method>
+		<method name="can_unmerge_selected_cells" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] when the current selection overlaps an effective merged region and grid editing is enabled. Connect [signal unmerge_available_changed] to update a custom Unmerge button without polling.
 			</description>
 		</method>
 		<method name="cell_at" qualifiers="const">
@@ -58,7 +70,7 @@
 		<method name="export_css">
 			<return type="String" />
 			<description>
-				Returns the current grid as a CSS string: a [code]grid[/code] rule with [code]grid-template-rows[/code], [code]grid-template-columns[/code] and [code]gap[/code], followed by one rule per child (named after the child node) carrying its [code]grid-column[/code], [code]grid-row[/code], [code]justify-self[/code] and [code]align-self[/code]. Children whose placement and alignment are all default are omitted. Visual styling (background, border, shadow) is handled by the [code]panel[/code] Theme StyleBox and is not part of the exported CSS. See [method import_css] for the inverse.
+				Returns the current grid as a CSS string: a [code]grid[/code] rule with [code]grid-template-rows[/code], [code]grid-template-columns[/code] and [code]gap[/code], followed by rules for children with non-default [code]justify-self[/code] or [code]align-self[/code]. Visual styling (background, border, shadow) is handled by the [code]panel[/code] Theme StyleBox and is not part of the exported CSS. See [method import_css] for the inverse.
 			</description>
 		</method>
 		<method name="find_line_at" qualifiers="const">
@@ -83,20 +95,6 @@
 				Returns the [code]align-self[/code] override of the child at [param index] (in sortable-child order).
 			</description>
 		</method>
-		<method name="get_child_column_span" qualifiers="const">
-			<return type="int" />
-			<param index="0" name="index" type="int" />
-			<description>
-				Returns how many columns the child at [param index] spans (CSS [code]grid-column: span N[/code]).
-			</description>
-		</method>
-		<method name="get_child_column_start" qualifiers="const">
-			<return type="int" />
-			<param index="0" name="index" type="int" />
-			<description>
-				Returns the explicit 1-indexed column line the child at [param index] starts on, or [code]0[/code] for automatic placement.
-			</description>
-		</method>
 		<method name="get_child_justify_self" qualifiers="const">
 			<return type="int" enum="WebGridContainer.SelfAlign" />
 			<param index="0" name="index" type="int" />
@@ -104,18 +102,11 @@
 				Returns the [code]justify-self[/code] override of the child at [param index] (in sortable-child order).
 			</description>
 		</method>
-		<method name="get_child_row_span" qualifiers="const">
-			<return type="int" />
+		<method name="get_child_resolved_grid_rect" qualifiers="const">
+			<return type="Rect2i" />
 			<param index="0" name="index" type="int" />
 			<description>
-				Returns how many rows the child at [param index] spans (CSS [code]grid-row: span N[/code]).
-			</description>
-		</method>
-		<method name="get_child_row_start" qualifiers="const">
-			<return type="int" />
-			<param index="0" name="index" type="int" />
-			<description>
-				Returns the explicit 1-indexed row line the child at [param index] starts on, or [code]0[/code] for automatic placement.
+				Returns the final zero-based grid area occupied by the child at [param index] after merge-aware auto-placement. A child placed in a merged logical cell occupies the complete merged region.
 			</description>
 		</method>
 		<method name="get_column_track_unit" qualifiers="const">
@@ -135,7 +126,7 @@
 		<method name="get_effective_column_count" qualifiers="const">
 			<return type="int" />
 			<description>
-				Returns the number of columns actually used after auto-placement, including any implicit columns created by spans or explicit placement (always at least [member column_count]).
+				Returns the number of columns actually used, including implicit columns required by [member merged_cell_rects] (always at least [member column_count]).
 			</description>
 		</method>
 		<method name="get_effective_row_count" qualifiers="const">
@@ -156,10 +147,16 @@
 				Returns the grid-line segments to draw, in local container coordinates, as an [Array] of [PackedVector2Array] (each holding a [code]start[/code] and [code]end[/code] point). Lines are continuous across gaps (one segment per run of cells, so a gap never breaks a line) and are split where they would cross a merged cell's interior, so they line up exactly with the laid-out cells. The built-in overlay draws its cell outlines from the cell rects instead, so these segments are for headless tests and for custom overlays that want the raw lines.
 			</description>
 		</method>
+		<method name="get_merged_cell_rects" qualifiers="const">
+			<return type="Array" />
+			<description>
+				Returns the authoritative grid-owned merged regions stored by [member merged_cell_rects].
+			</description>
+		</method>
 		<method name="get_merged_rects" qualifiers="const">
 			<return type="Array" />
 			<description>
-				Returns the merged cell areas (children whose placed span is larger than one cell on either axis) as an [Array] of [Rect2i] ([code]position[/code] = top-left cell, [code]size[/code] = column/row span). Used by the editor and the runtime overlay to skip the interior grid lines of a merged block.
+				Returns the merged cell areas as an [Array] of [Rect2i] ([code]position[/code] = top-left cell, [code]size[/code] = column/row span). This is the authoritative [member merged_cell_rects] topology used by layout, the editor, and the runtime overlay. Child spans are not included.
 			</description>
 		</method>
 		<method name="get_resolved_column_offsets" qualifiers="const">
@@ -200,6 +197,18 @@
 				Returns the size value of row track [param index] (interpreted according to its unit).
 			</description>
 		</method>
+		<method name="get_runtime_overlay_control" qualifiers="const">
+			<return type="Control" />
+			<description>
+				Returns the lazily created runtime overlay root, or [code]null[/code] when the overlay is disabled. A host that supplied [method set_runtime_overlay_parent] may reorder this control within that parent to match its logical paint order.
+			</description>
+		</method>
+		<method name="get_runtime_overlay_parent" qualifiers="const">
+			<return type="Control" />
+			<description>
+				Returns the external runtime overlay parent assigned with [method set_runtime_overlay_parent], or [code]null[/code] when the built-in top-level overlay is used.
+			</description>
+		</method>
 		<method name="get_selection_rect" qualifiers="const">
 			<return type="Rect2i" />
 			<description>
@@ -216,7 +225,7 @@
 			<return type="void" />
 			<param index="0" name="css" type="String" />
 			<description>
-				Updates the grid from a CSS string. The [code]grid[/code] rule sets [code]grid-template-rows[/code] / [code]grid-template-columns[/code] (each token is one track: [code]auto[/code], [code]&lt;n&gt;px[/code], [code]&lt;n&gt;%[/code] or [code]&lt;n&gt;fr[/code]) and [code]gap[/code] / [code]row-gap[/code] / [code]column-gap[/code]. Any other rule is matched to a child by node name and may set [code]grid-column[/code] / [code]grid-row[/code] (as [code]start / end[/code] or [code]span n[/code]), [code]justify-self[/code] and [code]align-self[/code]. Box-model properties ([code]padding[/code], [code]border[/code], [code]background-color[/code], [code]box-shadow[/code]) are ignored; use the [code]panel[/code] Theme StyleBox for visual styling instead. Inverse of [method export_css].
+				Updates the grid from a CSS string. The [code]grid[/code] rule sets [code]grid-template-rows[/code] / [code]grid-template-columns[/code] (each token is one track: [code]auto[/code], [code]&lt;n&gt;px[/code], [code]&lt;n&gt;%[/code] or [code]&lt;n&gt;fr[/code]) and [code]gap[/code] / [code]row-gap[/code] / [code]column-gap[/code]. Any other rule is matched to a child by node name and may set [code]justify-self[/code] and [code]align-self[/code]. Box-model properties are ignored; use the [code]panel[/code] Theme StyleBox for visual styling instead. Inverse of [method export_css].
 			</description>
 		</method>
 		<method name="is_grid_editable" qualifiers="const">
@@ -234,7 +243,7 @@
 		<method name="merge_selected_cells">
 			<return type="int" />
 			<description>
-				Applies the current cell selection as a span to the child occupying the selection's top-left cell, creating an explicit placement. Clears the selection and emits [signal cells_merged]. Returns the merged child's index, or [code]-1[/code] if there was nothing to merge.
+				Stores the current multi-cell selection in the grid's merge topology without changing child alignment. Children are reflowed through the resulting logical cells, and an occupant automatically fills the complete merged region. The merge remains unchanged when children are added, removed, reordered, or moved. Clears the selection and emits [signal cells_merged]. Returns the current occupant's index, [code]-2[/code] for a successful merge without an occupant, or [code]-1[/code] when the selection is invalid. A single-cell selection is always rejected.
 			</description>
 		</method>
 		<method name="select_cell">
@@ -253,44 +262,12 @@
 				Sets the [code]align-self[/code] override of the child at [param index].
 			</description>
 		</method>
-		<method name="set_child_column_span">
-			<return type="void" />
-			<param index="0" name="index" type="int" />
-			<param index="1" name="span" type="int" />
-			<description>
-				Sets how many columns the child at [param index] spans (minimum 1). Equivalent to CSS [code]grid-column: span N[/code].
-			</description>
-		</method>
-		<method name="set_child_column_start">
-			<return type="void" />
-			<param index="0" name="index" type="int" />
-			<param index="1" name="start" type="int" />
-			<description>
-				Sets the explicit 1-indexed column line the child at [param index] starts on. Pass [code]0[/code] for automatic placement.
-			</description>
-		</method>
 		<method name="set_child_justify_self">
 			<return type="void" />
 			<param index="0" name="index" type="int" />
 			<param index="1" name="align" type="int" enum="WebGridContainer.SelfAlign" />
 			<description>
 				Sets the [code]justify-self[/code] override of the child at [param index].
-			</description>
-		</method>
-		<method name="set_child_row_span">
-			<return type="void" />
-			<param index="0" name="index" type="int" />
-			<param index="1" name="span" type="int" />
-			<description>
-				Sets how many rows the child at [param index] spans (minimum 1). Equivalent to CSS [code]grid-row: span N[/code].
-			</description>
-		</method>
-		<method name="set_child_row_start">
-			<return type="void" />
-			<param index="0" name="index" type="int" />
-			<param index="1" name="start" type="int" />
-			<description>
-				Sets the explicit 1-indexed row line the child at [param index] starts on. Pass [code]0[/code] for automatic placement.
 			</description>
 		</method>
 		<method name="set_column_track_unit">
@@ -309,6 +286,13 @@
 				Sets the size value of column track [param index] (interpreted according to its unit).
 			</description>
 		</method>
+		<method name="set_merged_cell_rects">
+			<return type="void" />
+			<param index="0" name="rects" type="Array" />
+			<description>
+				Sets the serialized grid-owned merge regions. Invalid and single-cell rectangles are discarded. Intersecting rectangles are normalized into non-overlapping bounding regions.
+			</description>
+		</method>
 		<method name="set_row_track_unit">
 			<return type="void" />
 			<param index="0" name="index" type="int" />
@@ -325,10 +309,17 @@
 				Sets the size value of row track [param index] (interpreted according to its unit).
 			</description>
 		</method>
+		<method name="set_runtime_overlay_parent">
+			<return type="void" />
+			<param index="0" name="parent" type="Control" />
+			<description>
+				Parents the runtime interaction overlay below [param parent] instead of making it a canvas-global top-level control. This is intended for editors whose logical children are flat canvas siblings: place the control returned by [method get_runtime_overlay_control] immediately after the grid's logical subtree so later foreground nodes retain their paint and input order. Pass [code]null[/code] to restore the built-in top-level behavior.
+			</description>
+		</method>
 		<method name="unmerge_selected_cells">
 			<return type="int" />
 			<description>
-				Resets every merged child overlapped by the current selection back to a single cell, keeping each child anchored at its merged area's top-left. Returns the number of children unmerged, and emits [signal cells_unmerged] once per child.
+				Removes every logical merged region overlapped by the current selection without changing child alignment. Returns the number of logical regions removed and emits [signal cells_unmerged] once per removed region.
 			</description>
 		</method>
 		<method name="update_cell_drag">
@@ -368,6 +359,9 @@
 		<member name="justify_items" type="int" setter="set_justify_items" getter="get_justify_items" enum="WebGridContainer.ItemsAlign" default="0">
 			Default horizontal alignment of each child within its area. Equivalent to the CSS [code]justify-items[/code] property. Overridden per child by [method set_child_justify_self].
 		</member>
+		<member name="merged_cell_rects" type="Array[Rect2i]" setter="set_merged_cell_rects" getter="get_merged_cell_rects" default="[]">
+			The authoritative serialized merge topology in zero-based cell coordinates. Layout, drawing, hit-testing, selection snapping, merge and unmerge all use these regions independently of child nodes.
+		</member>
 		<member name="row_count" type="int" setter="set_row_count" getter="get_row_count" default="1">
 			The number of explicit row tracks. Equivalent to the number of tracks in CSS [code]grid-template-rows[/code]. Extra children create implicit rows beyond this count.
 		</member>
@@ -384,7 +378,7 @@
 	<signals>
 		<signal name="grid_changed">
 			<description>
-				Emitted when the grid definition changes (track count, sizes, gaps, alignment, per-child placement, or interaction state). Used by the editor to keep the inspector and canvas in sync.
+				Emitted when the grid definition changes (track count, sizes, gaps, alignment, merge topology, or interaction state). Used by the editor to keep the inspector and canvas in sync.
 			</description>
 		</signal>
 		<signal name="cells_selected">
@@ -397,13 +391,30 @@
 			<param index="0" name="child_index" type="int" />
 			<param index="1" name="rect" type="Rect2i" />
 			<description>
-				Emitted by [method merge_selected_cells] after a merge. [param child_index] is the child that received the span and [param rect] is the merged cell range.
+				Emitted by [method merge_selected_cells] after a merge. [param child_index] is the child occupying the merged logical cell at that moment, or [code]-1[/code] when it is empty; [param rect] is the merged cell range. Child alignment is unchanged.
 			</description>
 		</signal>
 		<signal name="cells_unmerged">
 			<param index="0" name="child_index" type="int" />
 			<description>
-				Emitted by [method unmerge_selected_cells] once for each child whose span was reset back to a single cell. [param child_index] is that child's index.
+				Emitted by [method unmerge_selected_cells] for each removed logical region. [param child_index] is the child that occupied the region immediately before unmerging, or [code]-1[/code] when it was empty. Child alignment is unchanged.
+			</description>
+		</signal>
+		<signal name="merge_available_changed">
+			<param index="0" name="available" type="bool" />
+			<description>
+				Emitted when [method can_merge_selected_cells] changes. Custom Merge buttons can bind their disabled state to [code]not available[/code].
+			</description>
+		</signal>
+		<signal name="merged_cells_changed">
+			<description>
+				Emitted when the grid-owned merge topology changes through merging, unmerging, or [member merged_cell_rects].
+			</description>
+		</signal>
+		<signal name="unmerge_available_changed">
+			<param index="0" name="available" type="bool" />
+			<description>
+				Emitted when [method can_unmerge_selected_cells] changes. Custom Unmerge buttons can bind their disabled state to [code]not available[/code].
 			</description>
 		</signal>
 	</signals>

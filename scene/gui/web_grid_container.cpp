@@ -39,6 +39,35 @@
 #include "scene/gui/button.h"
 #include "scene/gui/web_grid_overlay.h"
 
+static bool _web_grid_valid_merge_rect(const Rect2i &p_rect) {
+	return p_rect.position.x >= 0 && p_rect.position.y >= 0 &&
+			p_rect.size.x > 0 && p_rect.size.y > 0 &&
+			(p_rect.size.x > 1 || p_rect.size.y > 1);
+}
+
+// Add a merge while maintaining a non-overlapping canonical list. Intersecting
+// regions are folded into their bounding rectangle, then checked again because the
+// growth can reach another region. This also makes malformed externally supplied
+// arrays deterministic and safe for the dense spatial cache.
+static void _web_grid_append_merged_rect(Vector<Rect2i> &r_rects, const Rect2i &p_rect) {
+	if (!_web_grid_valid_merge_rect(p_rect)) {
+		return;
+	}
+	Rect2i merged = p_rect;
+	bool changed = true;
+	while (changed) {
+		changed = false;
+		for (int i = r_rects.size() - 1; i >= 0; i--) {
+			if (merged.intersects(r_rects[i])) {
+				merged = merged.merge(r_rects[i]);
+				r_rects.remove_at(i);
+				changed = true;
+			}
+		}
+	}
+	r_rects.push_back(merged);
+}
+
 void WebGridContainer::_resize_tracks(Vector<GridTrack> &p_tracks, int p_count) {
 	int old_size = p_tracks.size();
 	p_tracks.resize(p_count);
@@ -73,162 +102,155 @@ void WebGridContainer::_sync_child_aligns() {
 	notify_property_list_changed();
 }
 
-// Full CSS grid auto-placement (grid-auto-flow: row, sparse packing). Produces a
-// GridArea for every sortable child and reports the effective track counts needed
-// to hold every item, including implicit rows (and columns widened to fit spans
-// or explicit placements).
+// Row-major auto-placement over logical cells. A merged region is one slot: its
+// anchor accepts one child and its covered physical cells are skipped.
 void WebGridContainer::_place_items(Vector<GridArea> &r_areas, int &r_cols, int &r_rows) const {
-	Vector<ChildAlign> items;
+	int item_count = 0;
 	for (int i = 0; i < get_child_count(); i++) {
-		if (!as_sortable_control(get_child(i), SortableVisibilityMode::IGNORE)) {
-			continue;
+		if (as_sortable_control(get_child(i), SortableVisibilityMode::IGNORE)) {
+			item_count++;
 		}
-		ChildAlign ca;
-		int idx = items.size();
-		if (idx < child_aligns.size()) {
-			ca = child_aligns[idx];
-		}
-		items.push_back(ca);
 	}
+	r_areas.resize(item_count);
 
-	int n = items.size();
-	r_areas.resize(n);
-
-	// Number of columns: the explicit count, widened to fit any definite column
-	// placement and the widest auto-placed span (CSS widens the implicit grid to
-	// fit the largest auto item).
+	// Stored merges may extend the explicit grid and therefore create implicit tracks.
 	int col_lines = MAX(column_count, 1);
-	for (int i = 0; i < n; i++) {
-		int cs = MAX(items[i].column_span, 1);
-		if (items[i].column_start > 0) {
-			col_lines = MAX(col_lines, items[i].column_start - 1 + cs);
-		} else {
-			col_lines = MAX(col_lines, cs);
+	for (const Rect2i &rect : merged_cell_rects) {
+		if (_web_grid_valid_merge_rect(rect)) {
+			col_lines = MAX(col_lines, rect.position.x + rect.size.x);
+		}
+	}
+	int max_row = MAX(row_count, 1);
+	for (const Rect2i &rect : merged_cell_rects) {
+		if (_web_grid_valid_merge_rect(rect)) {
+			max_row = MAX(max_row, rect.position.y + rect.size.y);
 		}
 	}
 
-	// Dynamic occupancy grid (rows grow on demand).
-	Vector<bool> occ;
-	int occ_rows = 0;
-	auto ensure_rows = [&](int rows) {
-		if (rows > occ_rows) {
-			occ.resize(rows * col_lines);
-			for (int k = occ_rows * col_lines; k < rows * col_lines; k++) {
-				occ.write[k] = false;
-			}
-			occ_rows = rows;
+	// Build the logical-cell owner map once. Rows created later by auto-flow contain no
+	// authored merges, so they are ordinary cells and need no topology rebuild.
+	_rebuild_merge_cache(col_lines, max_row);
+
+	// Grow an arbitrary candidate rectangle until it fully contains every merged
+	// logical cell it touches. The dense owner map avoids scanning all merges per cell.
+	// A child landing on a merge anchor with a 1x1 authored span therefore resolves to
+	// the complete merged slot, while a span crossing a merge can never split it.
+	auto resolve_footprint = [&](int p_column, int p_row, int p_column_span, int p_row_span) -> Rect2i {
+		if (p_column < 0 || p_row < 0 || p_column_span < 1 || p_row_span < 1 || p_column + p_column_span > col_lines) {
+			return Rect2i();
 		}
+		Rect2i footprint(p_column, p_row, p_column_span, p_row_span);
+		bool changed = true;
+		while (changed) {
+			changed = false;
+			const Rect2i before = footprint;
+			const int x0 = CLAMP(footprint.position.x, 0, merge_cache_columns);
+			const int y0 = CLAMP(footprint.position.y, 0, merge_cache_rows);
+			const int x1 = CLAMP(footprint.position.x + footprint.size.x, 0, merge_cache_columns);
+			const int y1 = CLAMP(footprint.position.y + footprint.size.y, 0, merge_cache_rows);
+			for (int row = y0; row < y1; row++) {
+				for (int column = x0; column < x1; column++) {
+					const int owner = merged_cell_owner_cache[row * merge_cache_columns + column];
+					if (owner >= 0 && owner < merged_cell_rects.size() && !footprint.encloses(merged_cell_rects[owner])) {
+						footprint = footprint.merge(merged_cell_rects[owner]);
+					}
+				}
+			}
+			changed = footprint != before;
+		}
+		if (footprint.position.x < 0 || footprint.position.y < 0 ||
+				footprint.position.x + footprint.size.x > col_lines) {
+			return Rect2i();
+		}
+		return footprint;
 	};
-	auto is_free = [&](int c, int r, int cs, int rs) -> bool {
-		if (c < 0 || r < 0 || c + cs > col_lines) {
+
+	// Physical occupancy is stored as row-major 64-bit chunks. This keeps candidate
+	// checks O(row_span * touched_words), supports programmatic grids wider than the
+	// inspector's 64-column hint, and avoids one byte/object per cell.
+	const int words_per_row = (col_lines + 63) / 64;
+	Vector<uint64_t> occupied;
+	int occupied_rows = 0;
+	auto ensure_occupied_rows = [&](int p_rows) {
+		if (p_rows <= occupied_rows) {
+			return;
+		}
+		const int old_size = occupied.size();
+		occupied.resize(p_rows * words_per_row);
+		for (int i = old_size; i < occupied.size(); i++) {
+			occupied.write[i] = 0;
+		}
+		occupied_rows = p_rows;
+	};
+	auto word_mask = [](int p_begin, int p_end) -> uint64_t {
+		const uint64_t high = p_end == 64 ? ~uint64_t(0) : (uint64_t(1) << p_end) - 1;
+		const uint64_t low = p_begin == 0 ? 0 : (uint64_t(1) << p_begin) - 1;
+		return high & ~low;
+	};
+	auto is_free = [&](const Rect2i &p_rect) -> bool {
+		if (p_rect.size.x < 1 || p_rect.size.y < 1 || p_rect.position.x < 0 || p_rect.position.y < 0 ||
+				p_rect.position.x + p_rect.size.x > col_lines) {
 			return false;
 		}
-		ensure_rows(r + rs);
-		for (int rr = r; rr < r + rs; rr++) {
-			for (int cc = c; cc < c + cs; cc++) {
-				if (occ[rr * col_lines + cc]) {
+		ensure_occupied_rows(p_rect.position.y + p_rect.size.y);
+		const int first_word = p_rect.position.x / 64;
+		const int last_word = (p_rect.position.x + p_rect.size.x - 1) / 64;
+		for (int row = p_rect.position.y; row < p_rect.position.y + p_rect.size.y; row++) {
+			for (int word = first_word; word <= last_word; word++) {
+				const int word_start = word * 64;
+				const int begin = MAX(p_rect.position.x - word_start, 0);
+				const int end = MIN(p_rect.position.x + p_rect.size.x - word_start, 64);
+				if (occupied[row * words_per_row + word] & word_mask(begin, end)) {
 					return false;
 				}
 			}
 		}
 		return true;
 	};
-	auto mark = [&](int c, int r, int cs, int rs) {
-		ensure_rows(r + rs);
-		for (int rr = r; rr < r + rs; rr++) {
-			for (int cc = c; cc < c + cs; cc++) {
-				occ.write[rr * col_lines + cc] = true;
+	auto mark = [&](const Rect2i &p_rect) {
+		ensure_occupied_rows(p_rect.position.y + p_rect.size.y);
+		const int first_word = p_rect.position.x / 64;
+		const int last_word = (p_rect.position.x + p_rect.size.x - 1) / 64;
+		for (int row = p_rect.position.y; row < p_rect.position.y + p_rect.size.y; row++) {
+			for (int word = first_word; word <= last_word; word++) {
+				const int word_start = word * 64;
+				const int begin = MAX(p_rect.position.x - word_start, 0);
+				const int end = MIN(p_rect.position.x + p_rect.size.x - word_start, 64);
+				occupied.write[row * words_per_row + word] |= word_mask(begin, end);
 			}
 		}
 	};
+	auto store_area = [&](int p_index, const Rect2i &p_rect) {
+		mark(p_rect);
+		r_areas.write[p_index] = GridArea{ p_rect.position.x, p_rect.position.y, p_rect.size.x, p_rect.size.y };
+		max_row = MAX(max_row, p_rect.position.y + p_rect.size.y);
+	};
 
-	Vector<bool> placed;
-	placed.resize(n);
-	for (int i = 0; i < n; i++) {
-		placed.write[i] = false;
-	}
-	int max_row = MAX(row_count, 1);
-
-	// Phase 1: items with a definite position on both axes.
-	for (int i = 0; i < n; i++) {
-		const ChildAlign &ca = items[i];
-		if (ca.column_start > 0 && ca.row_start > 0) {
-			int c0 = ca.column_start - 1;
-			int r0 = ca.row_start - 1;
-			int cs = MAX(ca.column_span, 1);
-			int rs = MAX(ca.row_span, 1);
-			mark(c0, r0, cs, rs);
-			r_areas.write[i] = GridArea{ c0, r0, cs, rs };
-			placed.write[i] = true;
-			max_row = MAX(max_row, r0 + rs);
-		}
-	}
-
-	// Phase 2: items with a definite row but automatic column.
-	for (int i = 0; i < n; i++) {
-		const ChildAlign &ca = items[i];
-		if (placed[i] || ca.row_start <= 0 || ca.column_start > 0) {
-			continue;
-		}
-		int r0 = ca.row_start - 1;
-		int cs = MAX(ca.column_span, 1);
-		int rs = MAX(ca.row_span, 1);
-		int c0 = 0;
-		while (c0 + cs <= col_lines && !is_free(c0, r0, cs, rs)) {
-			c0++;
-		}
-		if (c0 + cs > col_lines) {
-			c0 = 0; // overflow fallback.
-		}
-		mark(c0, r0, cs, rs);
-		r_areas.write[i] = GridArea{ c0, r0, cs, rs };
-		placed.write[i] = true;
-		max_row = MAX(max_row, r0 + rs);
-	}
-
-	// Phase 3: auto-flow the remaining items (sparse, row major).
+	// Every child is auto-placed. Covered cells reject the anchor check; the merge
+	// anchor expands to the full logical region and marks its complete footprint.
 	int cur_r = 0;
 	int cur_c = 0;
-	for (int i = 0; i < n; i++) {
-		if (placed[i]) {
-			continue;
-		}
-		const ChildAlign &ca = items[i];
-		int cs = MAX(ca.column_span, 1);
-		int rs = MAX(ca.row_span, 1);
-		if (ca.column_start > 0) {
-			// Definite column, automatic row.
-			int c0 = ca.column_start - 1;
-			if (c0 < cur_c) {
-				cur_r++;
+	for (int i = 0; i < item_count; i++) {
+		int r = cur_r;
+		int c = cur_c;
+		while (true) {
+			Rect2i candidate = resolve_footprint(c, r, 1, 1);
+			if (candidate.position == Vector2i(c, r) && is_free(candidate)) {
+				store_area(i, candidate);
+				break;
 			}
-			cur_c = c0;
-			int r = cur_r;
-			while (!is_free(c0, r, cs, rs)) {
+			c++;
+			if (c >= col_lines) {
+				c = 0;
 				r++;
 			}
-			mark(c0, r, cs, rs);
-			r_areas.write[i] = GridArea{ c0, r, cs, rs };
-			cur_r = r;
-			max_row = MAX(max_row, r + rs);
-		} else {
-			int r = cur_r;
-			int c = cur_c;
-			while (true) {
-				if (c + cs <= col_lines && is_free(c, r, cs, rs)) {
-					break;
-				}
-				c++;
-				if (c + cs > col_lines) {
-					c = 0;
-					r++;
-				}
-			}
-			mark(c, r, cs, rs);
-			r_areas.write[i] = GridArea{ c, r, cs, rs };
-			cur_r = r;
-			cur_c = c;
-			max_row = MAX(max_row, r + rs);
+		}
+		const GridArea &area = r_areas[i];
+		cur_r = area.row;
+		cur_c = area.col + area.col_span;
+		if (cur_c >= col_lines) {
+			cur_c = 0;
+			cur_r++;
 		}
 	}
 
@@ -629,6 +651,7 @@ void WebGridContainer::_resort() {
 	}
 
 	_update_overlay();
+	_update_merge_availability();
 }
 
 Size2 WebGridContainer::_get_minimum_size() const {
@@ -757,6 +780,15 @@ int WebGridContainer::get_effective_row_count() const {
 	int ec = 1, er = 1;
 	_place_items(areas, ec, er);
 	return er;
+}
+
+Rect2i WebGridContainer::get_child_resolved_grid_rect(int p_index) const {
+	Vector<GridArea> areas;
+	int ec = 1, er = 1;
+	_place_items(areas, ec, er);
+	ERR_FAIL_INDEX_V(p_index, areas.size(), Rect2i());
+	const GridArea &area = areas[p_index];
+	return Rect2i(area.col, area.row, area.col_span, area.row_span);
 }
 
 //
@@ -1075,18 +1107,58 @@ Vector2i WebGridContainer::cell_at(const Point2 &p_local) const {
 	return Vector2i(col, row);
 }
 
-Vector<Rect2i> WebGridContainer::_merged_rects() const {
-	Vector<GridArea> areas;
-	int ec = 1, er = 1;
-	_place_items(areas, ec, er);
-	Vector<Rect2i> out;
-	for (int i = 0; i < areas.size(); i++) {
-		const GridArea &a = areas[i];
-		if (a.col_span > 1 || a.row_span > 1) {
-			out.push_back(Rect2i(a.col, a.row, a.col_span, a.row_span));
+void WebGridContainer::_invalidate_merge_cache() {
+	merge_cache_dirty = true;
+}
+
+void WebGridContainer::_rebuild_merge_cache(int p_columns, int p_rows) const {
+	p_columns = MAX(p_columns, 1);
+	p_rows = MAX(p_rows, 1);
+	if (!merge_cache_dirty && merge_cache_columns == p_columns && merge_cache_rows == p_rows) {
+		return;
+	}
+
+	merge_cache_columns = p_columns;
+	merge_cache_rows = p_rows;
+	const int mask_size = merge_cache_columns * merge_cache_rows;
+	merged_cell_owner_cache.resize(mask_size);
+	merged_vertical_interior_cache.resize(mask_size);
+	merged_horizontal_interior_cache.resize(mask_size);
+	for (int i = 0; i < mask_size; i++) {
+		merged_cell_owner_cache.write[i] = -1;
+		merged_vertical_interior_cache.write[i] = false;
+		merged_horizontal_interior_cache.write[i] = false;
+	}
+
+	// A vertical boundary uses index row * columns + boundary, where boundary is
+	// 1..columns-1. Horizontal boundaries use boundary * columns + column. Keeping the
+	// unused outer-edge slots makes all lookups branch-free and costs only O(rows*cols).
+	for (int merge_index = 0; merge_index < merged_cell_rects.size(); merge_index++) {
+		const Rect2i &rect = merged_cell_rects[merge_index];
+		const int x0 = CLAMP(rect.position.x, 0, merge_cache_columns);
+		const int y0 = CLAMP(rect.position.y, 0, merge_cache_rows);
+		const int x1 = CLAMP(rect.position.x + rect.size.x, 0, merge_cache_columns);
+		const int y1 = CLAMP(rect.position.y + rect.size.y, 0, merge_cache_rows);
+		for (int row = y0; row < y1; row++) {
+			for (int column = x0; column < x1; column++) {
+				merged_cell_owner_cache.write[row * merge_cache_columns + column] = merge_index;
+			}
+			for (int boundary = x0 + 1; boundary < x1; boundary++) {
+				merged_vertical_interior_cache.write[row * merge_cache_columns + boundary] = true;
+			}
+		}
+		for (int boundary = y0 + 1; boundary < y1; boundary++) {
+			for (int column = x0; column < x1; column++) {
+				merged_horizontal_interior_cache.write[boundary * merge_cache_columns + column] = true;
+			}
 		}
 	}
-	return out;
+
+	merge_cache_dirty = false;
+}
+
+Vector<Rect2i> WebGridContainer::_merged_rects() const {
+	return merged_cell_rects;
 }
 
 Rect2i WebGridContainer::_snap_rect_to_merges(const Rect2i &p_rect) const {
@@ -1159,29 +1231,17 @@ Array WebGridContainer::get_grid_line_segments() const {
 	_place_items(areas, ec, er);
 	AxisLayout cols = _resolve_axis_box(true, areas, ec);
 	AxisLayout rows = _resolve_axis_box(false, areas, er);
-	Vector<Rect2i> merged = _merged_rects();
+	_rebuild_merge_cache(ec, er);
 
 	// A boundary segment that runs through the interior of a merged area is omitted
 	// (the merged cell reads as one block, like an Excel merged cell).
 	auto col_interior = [&](int b, int r) -> bool {
-		for (int m = 0; m < merged.size(); m++) {
-			const Rect2i &mr = merged[m];
-			if (mr.position.x < b && mr.position.x + mr.size.x > b &&
-					mr.position.y <= r && r < mr.position.y + mr.size.y) {
-				return true;
-			}
-		}
-		return false;
+		return b > 0 && b < merge_cache_columns && r >= 0 && r < merge_cache_rows &&
+				merged_vertical_interior_cache[r * merge_cache_columns + b];
 	};
 	auto row_interior = [&](int b, int c) -> bool {
-		for (int m = 0; m < merged.size(); m++) {
-			const Rect2i &mr = merged[m];
-			if (mr.position.y < b && mr.position.y + mr.size.y > b &&
-					mr.position.x <= c && c < mr.position.x + mr.size.x) {
-				return true;
-			}
-		}
-		return false;
+		return b > 0 && b < merge_cache_rows && c >= 0 && c < merge_cache_columns &&
+				merged_horizontal_interior_cache[b * merge_cache_columns + c];
 	};
 
 	// Column boundaries: vertical lines at the centre of each column gap. Consecutive
@@ -1235,29 +1295,17 @@ Array WebGridContainer::get_gap_rects() const {
 	_place_items(areas, ec, er);
 	AxisLayout cols = _resolve_axis_box(true, areas, ec);
 	AxisLayout rows = _resolve_axis_box(false, areas, er);
-	Vector<Rect2i> merged = _merged_rects();
+	_rebuild_merge_cache(ec, er);
 
 	// A gap strip that runs through a merged area's interior is omitted (the merged cell
 	// covers the gap it spans, exactly as the grid lines there are omitted).
 	auto col_interior = [&](int b, int r) -> bool {
-		for (int m = 0; m < merged.size(); m++) {
-			const Rect2i &mr = merged[m];
-			if (mr.position.x < b && mr.position.x + mr.size.x > b &&
-					mr.position.y <= r && r < mr.position.y + mr.size.y) {
-				return true;
-			}
-		}
-		return false;
+		return b > 0 && b < merge_cache_columns && r >= 0 && r < merge_cache_rows &&
+				merged_vertical_interior_cache[r * merge_cache_columns + b];
 	};
 	auto row_interior = [&](int b, int c) -> bool {
-		for (int m = 0; m < merged.size(); m++) {
-			const Rect2i &mr = merged[m];
-			if (mr.position.y < b && mr.position.y + mr.size.y > b &&
-					mr.position.x <= c && c < mr.position.x + mr.size.x) {
-				return true;
-			}
-		}
-		return false;
+		return b > 0 && b < merge_cache_rows && c >= 0 && c < merge_cache_columns &&
+				merged_horizontal_interior_cache[b * merge_cache_columns + c];
 	};
 
 	// Column gaps: vertical strips between adjacent columns, spanning runs of rows.
@@ -1332,6 +1380,7 @@ void WebGridContainer::select_cell(const Vector2i &p_cell, bool p_shift) {
 	selection_rect = _snap_rect_to_merges(selection_rect);
 	has_selection = true;
 	_update_overlay();
+	_update_merge_availability();
 	emit_signal(SNAME("cells_selected"), selection_rect);
 }
 
@@ -1344,6 +1393,7 @@ void WebGridContainer::begin_cell_drag(const Vector2i &p_cell) {
 	has_selection = true;
 	cell_dragging = true;
 	_update_overlay();
+	_update_merge_availability();
 	emit_signal(SNAME("cells_selected"), selection_rect);
 }
 
@@ -1357,6 +1407,7 @@ void WebGridContainer::update_cell_drag(const Vector2i &p_cell) {
 	int y1 = MAX(selection_anchor.y, p_cell.y);
 	selection_rect = _snap_rect_to_merges(Rect2i(x0, y0, x1 - x0 + 1, y1 - y0 + 1));
 	_update_overlay();
+	_update_merge_availability();
 	emit_signal(SNAME("cells_selected"), selection_rect);
 }
 
@@ -1372,6 +1423,7 @@ void WebGridContainer::clear_cell_selection() {
 	cell_dragging = false;
 	selection_rect = Rect2i();
 	_update_overlay();
+	_update_merge_availability();
 	emit_signal(SNAME("cells_selected"), selection_rect);
 }
 
@@ -1383,8 +1435,56 @@ Rect2i WebGridContainer::get_selection_rect() const {
 	return has_selection ? selection_rect : Rect2i();
 }
 
+bool WebGridContainer::_selection_is_inside_grid() const {
+	if (!has_selection || selection_rect.position.x < 0 || selection_rect.position.y < 0 ||
+			selection_rect.size.x < 1 || selection_rect.size.y < 1) {
+		return false;
+	}
+	Vector<GridArea> areas;
+	int columns = 1;
+	int rows = 1;
+	_place_items(areas, columns, rows);
+	return selection_rect.position.x + selection_rect.size.x <= columns &&
+			selection_rect.position.y + selection_rect.size.y <= rows;
+}
+
+bool WebGridContainer::can_merge_selected_cells() const {
+	return is_grid_editable() && _selection_is_inside_grid() &&
+			(selection_rect.size.x > 1 || selection_rect.size.y > 1);
+}
+
+bool WebGridContainer::can_unmerge_selected_cells() const {
+	if (!is_grid_editable() || !_selection_is_inside_grid()) {
+		return false;
+	}
+	Vector<Rect2i> merged = _merged_rects();
+	for (const Rect2i &rect : merged) {
+		if (selection_rect.intersects(rect)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+void WebGridContainer::_update_merge_availability() {
+	if (merge_operation_in_progress) {
+		return;
+	}
+	const bool merge_available = can_merge_selected_cells();
+	const bool unmerge_available = can_unmerge_selected_cells();
+	if (merge_available != last_merge_available) {
+		last_merge_available = merge_available;
+		emit_signal(SNAME("merge_available_changed"), merge_available);
+	}
+	if (unmerge_available != last_unmerge_available) {
+		last_unmerge_available = unmerge_available;
+		emit_signal(SNAME("unmerge_available_changed"), unmerge_available);
+	}
+}
+
 int WebGridContainer::merge_selected_cells() {
-	if (!has_selection || selection_rect.size.x < 1 || selection_rect.size.y < 1) {
+	// A merge must change the grid topology, so a single cell is never a valid merge.
+	if (!can_merge_selected_cells()) {
 		return -1;
 	}
 	Rect2i sel = selection_rect;
@@ -1414,42 +1514,34 @@ int WebGridContainer::merge_selected_cells() {
 			}
 		}
 	}
-	if (target < 0) {
-		return -1;
-	}
+	merge_operation_in_progress = true;
 
-	set_child_column_start(target, sel.position.x + 1);
-	set_child_column_span(target, sel.size.x);
-	set_child_row_start(target, sel.position.y + 1);
-	set_child_row_span(target, sel.size.y);
-
-	// Guarantee one object per cell: every OTHER child currently overlapping the
-	// merged area is reset to auto-placement, so it reflows out of the merged block
-	// instead of overlapping it. This covers a previously-merged child the new
-	// selection swallowed (its span would otherwise still occupy the merged cells).
-	// `areas` is the pre-merge snapshot, so the original positions are used.
-	for (int idx = 0; idx < areas.size(); idx++) {
-		if (idx == target) {
-			continue;
+	// Merge topology belongs exclusively to the grid. Child alignment is deliberately
+	// untouched, so adding, removing, or moving children cannot change the topology.
+	Vector<Rect2i> next_merges;
+	for (const Rect2i &rect : merged_cell_rects) {
+		if (!sel.intersects(rect)) {
+			next_merges.push_back(rect);
 		}
-		const GridArea &a = areas[idx];
-		Rect2i ar(a.col, a.row, a.col_span, a.row_span);
-		if (!sel.intersects(ar)) {
-			continue;
-		}
-		set_child_column_start(idx, 0);
-		set_child_column_span(idx, 1);
-		set_child_row_start(idx, 0);
-		set_child_row_span(idx, 1);
 	}
+	_web_grid_append_merged_rect(next_merges, sel);
+	merged_cell_rects = next_merges;
 
+	_invalidate_merge_cache();
+	queue_sort();
+	update_minimum_size();
+	_update_overlay();
+	merge_operation_in_progress = false;
+	emit_signal(SNAME("merged_cells_changed"));
+	emit_signal(SNAME("grid_changed"));
 	emit_signal(SNAME("cells_merged"), target, sel);
 	clear_cell_selection();
-	return target;
+	// -2 identifies a successful empty-cell merge; -1 is reserved for failure.
+	return target >= 0 ? target : -2;
 }
 
 int WebGridContainer::unmerge_selected_cells() {
-	if (!has_selection) {
+	if (!can_unmerge_selected_cells()) {
 		return 0;
 	}
 	Rect2i sel = selection_rect;
@@ -1458,34 +1550,81 @@ int WebGridContainer::unmerge_selected_cells() {
 	int ec = 1, er = 1;
 	_place_items(areas, ec, er);
 
-	int unmerged = 0;
-	for (int idx = 0; idx < areas.size(); idx++) {
-		const GridArea &a = areas[idx];
-		if (a.col_span <= 1 && a.row_span <= 1) {
-			continue;
+	Vector<Rect2i> effective_before = _merged_rects();
+	Vector<Rect2i> affected;
+	for (const Rect2i &rect : effective_before) {
+		if (sel.intersects(rect)) {
+			affected.push_back(rect);
 		}
-		// Unmerge any merged child that the selection overlaps.
-		Rect2i ar(a.col, a.row, a.col_span, a.row_span);
-		if (!sel.intersects(ar)) {
-			continue;
+	}
+	Vector<int> affected_owners;
+	for (const Rect2i &rect : affected) {
+		int owner = -1;
+		for (int idx = 0; idx < areas.size(); idx++) {
+			const GridArea &area = areas[idx];
+			if (Rect2i(area.col, area.row, area.col_span, area.row_span).has_point(rect.position)) {
+				owner = idx;
+				break;
+			}
 		}
-		// Collapse the span back to a single cell AND clear the explicit placement
-		// (column_start / row_start back to 0 = auto), so the child returns fully to
-		// auto-placement instead of staying pinned to the old merged origin.
-		set_child_column_start(idx, 0);
-		set_child_column_span(idx, 1);
-		set_child_row_start(idx, 0);
-		set_child_row_span(idx, 1);
-		emit_signal(SNAME("cells_unmerged"), idx);
-		unmerged++;
+		affected_owners.push_back(owner);
 	}
-	if (unmerged > 0) {
-		// The merged area shrank, so re-snap the selection to the new layout.
-		selection_rect = _snap_rect_to_merges(selection_rect);
-		_update_overlay();
-		emit_signal(SNAME("cells_selected"), selection_rect);
+
+	merge_operation_in_progress = true;
+	Vector<Rect2i> next_merges;
+	for (const Rect2i &rect : merged_cell_rects) {
+		if (!sel.intersects(rect)) {
+			next_merges.push_back(rect);
+		}
 	}
-	return unmerged;
+	merged_cell_rects = next_merges;
+
+	_invalidate_merge_cache();
+	queue_sort();
+	update_minimum_size();
+	selection_rect = _snap_rect_to_merges(selection_rect);
+	_update_overlay();
+	merge_operation_in_progress = false;
+	emit_signal(SNAME("merged_cells_changed"));
+	emit_signal(SNAME("grid_changed"));
+	for (int owner : affected_owners) {
+		emit_signal(SNAME("cells_unmerged"), owner);
+	}
+	_update_merge_availability();
+	emit_signal(SNAME("cells_selected"), selection_rect);
+	return affected.size();
+}
+
+void WebGridContainer::set_merged_cell_rects(const Array &p_rects) {
+	Vector<Rect2i> normalized;
+	for (int i = 0; i < p_rects.size(); i++) {
+		if (p_rects[i].get_type() == Variant::RECT2I) {
+			_web_grid_append_merged_rect(normalized, p_rects[i]);
+		}
+	}
+	bool equal = normalized.size() == merged_cell_rects.size();
+	for (int i = 0; equal && i < normalized.size(); i++) {
+		equal = normalized[i] == merged_cell_rects[i];
+	}
+	if (equal) {
+		return;
+	}
+	merged_cell_rects = normalized;
+	_invalidate_merge_cache();
+	queue_sort();
+	update_minimum_size();
+	_update_overlay();
+	emit_signal(SNAME("merged_cells_changed"));
+	emit_signal(SNAME("grid_changed"));
+	_update_merge_availability();
+}
+
+Array WebGridContainer::get_merged_cell_rects() const {
+	Array out;
+	for (const Rect2i &rect : merged_cell_rects) {
+		out.push_back(rect);
+	}
+	return out;
 }
 
 //
@@ -1602,8 +1741,8 @@ String WebGridContainer::export_css() const {
 
 	out += "}\n";
 
-	// Per-child rules, named after the child node. Children whose placement and
-	// alignment are all default are skipped entirely.
+	// Per-child alignment rules, named after the child node. Default children are
+	// skipped entirely.
 	Vector<String> names;
 	for (int i = 0; i < get_child_count(); i++) {
 		Control *c = as_sortable_control(get_child(i), SortableVisibilityMode::IGNORE);
@@ -1613,22 +1752,11 @@ String WebGridContainer::export_css() const {
 	}
 	for (int idx = 0; idx < names.size(); idx++) {
 		ChildAlign ca = (idx < child_aligns.size()) ? child_aligns[idx] : ChildAlign();
-		bool is_default = ca.justify_self == SELF_AUTO && ca.align_self == SELF_AUTO &&
-				ca.column_start == 0 && ca.column_span == 1 && ca.row_start == 0 && ca.row_span == 1;
+		bool is_default = ca.justify_self == SELF_AUTO && ca.align_self == SELF_AUTO;
 		if (is_default) {
 			continue;
 		}
 		String body;
-		if (ca.column_start > 0) {
-			body += "\tgrid-column: " + itos(ca.column_start) + " / " + itos(ca.column_start + ca.column_span) + ";\n";
-		} else if (ca.column_span > 1) {
-			body += "\tgrid-column: span " + itos(ca.column_span) + ";\n";
-		}
-		if (ca.row_start > 0) {
-			body += "\tgrid-row: " + itos(ca.row_start) + " / " + itos(ca.row_start + ca.row_span) + ";\n";
-		} else if (ca.row_span > 1) {
-			body += "\tgrid-row: span " + itos(ca.row_span) + ";\n";
-		}
 		if (ca.justify_self != SELF_AUTO) {
 			body += String("\tjustify-self: ") + SELF_CSS_NAMES[(int)ca.justify_self] + ";\n";
 		}
@@ -1736,36 +1864,7 @@ void WebGridContainer::import_css(const String &p_css) {
 		for (int d = 0; d < props.size(); d++) {
 			const String &p = props[d];
 			const String &v = values[d];
-			if (p == "grid-column" || p == "grid-row") {
-				bool is_col = p == "grid-column";
-				Vector<String> toks = v.split_spaces();
-				int start = 0;
-				int span = 1;
-				if (toks.size() >= 2 && toks[0].to_lower() == "span") {
-					span = MAX(toks[1].to_int(), 1);
-				} else if (v.find("/") != -1) {
-					Vector<String> sides = v.split("/", false);
-					if (sides.size() >= 2) {
-						start = sides[0].strip_edges().to_int();
-						String end_s = sides[1].strip_edges();
-						Vector<String> end_toks = end_s.split_spaces();
-						if (end_s.to_lower().begins_with("span") && end_toks.size() >= 2) {
-							span = MAX(end_toks[1].to_int(), 1);
-						} else {
-							span = MAX(end_s.to_int() - start, 1);
-						}
-					}
-				} else if (!toks.is_empty()) {
-					start = toks[0].to_int();
-				}
-				if (is_col) {
-					set_child_column_start(child_idx, start);
-					set_child_column_span(child_idx, span);
-				} else {
-					set_child_row_start(child_idx, start);
-					set_child_row_span(child_idx, span);
-				}
-			} else if (p == "justify-self") {
+			if (p == "justify-self") {
 				set_child_justify_self(child_idx, _css_to_self(v));
 			} else if (p == "align-self") {
 				set_child_align_self(child_idx, _css_to_self(v));
@@ -1797,6 +1896,24 @@ void WebGridContainer::_ensure_overlay() {
 		// simply means it never exists: no lines, no cell selection, no merge button.
 		return;
 	}
+	// By default the top-level root wins GUI hit-testing against canvas siblings.
+	// A host application with a flat logical canvas can instead provide an
+	// external parent and place this root immediately after the grid's logical
+	// subtree. That preserves both grid editing and the host's foreground order.
+	interaction_root = memnew(Control);
+	interaction_root->set_name("WebGridRuntimeOverlay");
+	interaction_root->set_meta(SNAME("pb_grid_overlay"), true);
+	interaction_root->set_mouse_filter(MOUSE_FILTER_IGNORE);
+	interaction_root->set_clip_contents(true);
+	interaction_root->set_anchors_preset(PRESET_TOP_LEFT);
+	if (runtime_overlay_parent) {
+		runtime_overlay_parent->add_child(interaction_root);
+	} else {
+		add_child(interaction_root, false, INTERNAL_MODE_FRONT);
+		interaction_root->set_as_top_level(true);
+		interaction_root->set_z_index(RSE::CANVAS_ITEM_Z_MAX);
+	}
+
 	interaction_overlay = memnew(Control);
 	interaction_overlay->set_mouse_filter(MOUSE_FILTER_STOP);
 	interaction_overlay->set_focus_mode(Control::FOCUS_CLICK);
@@ -1809,7 +1926,12 @@ void WebGridContainer::_ensure_overlay() {
 	interaction_overlay->connect(SNAME("gui_input"), callable_mp(this, &WebGridContainer::_overlay_gui_input));
 	// Clear the cell selection when the grid loses focus at runtime.
 	interaction_overlay->connect(SNAME("focus_exited"), callable_mp(this, &WebGridContainer::clear_cell_selection));
-	add_child(interaction_overlay, false, INTERNAL_MODE_BACK);
+	interaction_root->add_child(interaction_overlay);
+	// A web editor may keep logical grid children as flat canvas siblings instead
+	// of parenting their Controls below this container. Godot GUI hit-testing walks
+	// scene-tree order, not CanvasItem z-index. The top-level root above lets the
+	// native WebGridContainer remain the sole input surface without asking the host
+	// app to disable mouse input on every grid child.
 
 	merge_button = memnew(Button);
 	merge_button->set_text("Merge");
@@ -1828,7 +1950,8 @@ void WebGridContainer::_destroy_overlay() {
 	if (!interaction_overlay) {
 		return;
 	}
-	interaction_overlay->queue_free();
+	interaction_root->queue_free();
+	interaction_root = nullptr;
 	interaction_overlay = nullptr;
 	merge_button = nullptr;
 }
@@ -1842,16 +1965,38 @@ void WebGridContainer::_refresh_overlay_presence() {
 }
 
 void WebGridContainer::_update_overlay() {
-	if (!interaction_overlay) {
+	if (!interaction_root || !interaction_overlay) {
 		return;
 	}
-	interaction_overlay->set_position(Point2());
+	const Transform2D grid_xform = get_global_transform();
+	Rect2 visible_rect = get_global_rect();
+	for (Node *ancestor = get_parent(); ancestor; ancestor = ancestor->get_parent()) {
+		Control *clip = Object::cast_to<Control>(ancestor);
+		if (clip && clip->is_clipping_contents()) {
+			visible_rect = visible_rect.intersection(clip->get_global_rect());
+		}
+	}
+	Rect2 local_clip = grid_xform.affine_inverse().xform(visible_rect);
+	local_clip = local_clip.intersection(Rect2(Point2(), get_size()));
+	const bool overlay_visible = is_visible_in_tree() && local_clip.size.x > 0.0f && local_clip.size.y > 0.0f;
+	interaction_root->set_visible(overlay_visible);
+	if (!overlay_visible) {
+		return;
+	}
+	Transform2D overlay_xform = grid_xform;
+	if (runtime_overlay_parent && interaction_root->get_parent() == runtime_overlay_parent) {
+		overlay_xform = runtime_overlay_parent->get_global_transform().affine_inverse() * grid_xform;
+	}
+	interaction_root->set_position(overlay_xform.xform(local_clip.position));
+	interaction_root->set_rotation(overlay_xform.get_rotation());
+	interaction_root->set_scale(overlay_xform.get_scale());
+	interaction_root->set_size(local_clip.size);
+	interaction_overlay->set_position(-local_clip.position);
 	interaction_overlay->set_size(get_size());
 	interaction_overlay->queue_redraw();
 
 	if (merge_button) {
-		bool show = runtime_interactive && show_merge_button && has_selection &&
-				(selection_rect.size.x * selection_rect.size.y > 1);
+		bool show = runtime_interactive && show_merge_button && can_merge_selected_cells();
 		merge_button->set_visible(show);
 		if (show) {
 			Rect2 r = _cell_range_rect(selection_rect.position.x, selection_rect.position.y, selection_rect.size.x, selection_rect.size.y);
@@ -1889,6 +2034,10 @@ void WebGridContainer::_overlay_gui_input(const Ref<InputEvent> &p_event) {
 	Ref<InputEventMouseButton> mb = p_event;
 	if (mb.is_valid() && mb->get_button_index() == MouseButton::LEFT) {
 		if (mb->is_pressed()) {
+			// Keyboard focus is not mouse capture. Explicitly retain the click so motion
+			// and release events keep reaching this overlay when the pointer leaves the
+			// narrow line hit area during a drag.
+			interaction_overlay->grab_click_focus();
 			interaction_overlay->grab_focus();
 			Point2 pos = mb->get_position();
 			Dictionary line = find_line_at(pos);
@@ -1951,6 +2100,7 @@ void WebGridContainer::set_draw_grid(DrawGrid p_mode) {
 		clear_cell_selection();
 	}
 	_refresh_overlay_presence();
+	_update_merge_availability();
 	// The editor canvas overlay repaints on this signal.
 	emit_signal(SNAME("grid_changed"));
 	queue_redraw();
@@ -1975,6 +2125,27 @@ void WebGridContainer::set_runtime_interactive(bool p_enabled) {
 
 bool WebGridContainer::is_runtime_interactive() const {
 	return runtime_interactive;
+}
+
+void WebGridContainer::set_runtime_overlay_parent(Control *p_parent) {
+	ERR_FAIL_COND_MSG(p_parent && is_ancestor_of(p_parent), "The runtime overlay parent cannot be a descendant of the WebGridContainer.");
+	if (runtime_overlay_parent == p_parent) {
+		return;
+	}
+	if (interaction_root) {
+		interaction_root->set_visible(false);
+		_destroy_overlay();
+	}
+	runtime_overlay_parent = p_parent;
+	_refresh_overlay_presence();
+}
+
+Control *WebGridContainer::get_runtime_overlay_parent() const {
+	return runtime_overlay_parent;
+}
+
+Control *WebGridContainer::get_runtime_overlay_control() const {
+	return interaction_root;
 }
 
 void WebGridContainer::set_show_merge_button(bool p_enabled) {
@@ -2005,6 +2176,11 @@ void WebGridContainer::_notification(int p_what) {
 			_update_overlay();
 		} break;
 
+		case NOTIFICATION_TRANSFORM_CHANGED:
+		case NOTIFICATION_VISIBILITY_CHANGED: {
+			_update_overlay();
+		} break;
+
 		case NOTIFICATION_READY: {
 			// A no-op in the editor (see the _ensure_overlay() guard); the overlay only
 			// exists when the scene is actually running.
@@ -2028,17 +2204,20 @@ void WebGridContainer::add_child_notify(Node *p_child) {
 	Container::add_child_notify(p_child);
 	_sync_child_aligns();
 	queue_sort();
+	_update_merge_availability();
 }
 
 void WebGridContainer::move_child_notify(Node *p_child) {
 	Container::move_child_notify(p_child);
 	queue_sort();
+	_update_merge_availability();
 }
 
 void WebGridContainer::remove_child_notify(Node *p_child) {
 	Container::remove_child_notify(p_child);
 	_sync_child_aligns();
 	queue_sort();
+	_update_merge_availability();
 }
 
 //
@@ -2052,10 +2231,12 @@ void WebGridContainer::set_column_count(int p_count) {
 	}
 	column_count = p_count;
 	_resize_tracks(column_tracks, column_count);
+	_invalidate_merge_cache();
 	notify_property_list_changed();
 	queue_sort();
 	update_minimum_size();
 	emit_signal(SNAME("grid_changed"));
+	_update_merge_availability();
 }
 
 int WebGridContainer::get_column_count() const {
@@ -2069,10 +2250,12 @@ void WebGridContainer::set_row_count(int p_count) {
 	}
 	row_count = p_count;
 	_resize_tracks(row_tracks, row_count);
+	_invalidate_merge_cache();
 	notify_property_list_changed();
 	queue_sort();
 	update_minimum_size();
 	emit_signal(SNAME("grid_changed"));
+	_update_merge_availability();
 }
 
 int WebGridContainer::get_row_count() const {
@@ -2304,74 +2487,6 @@ WebGridContainer::SelfAlign WebGridContainer::get_child_align_self(int p_index) 
 	return child_aligns[p_index].align_self;
 }
 
-void WebGridContainer::set_child_column_start(int p_index, int p_start) {
-	ERR_FAIL_INDEX(p_index, child_aligns.size());
-	p_start = MAX(p_start, 0);
-	if (child_aligns[p_index].column_start == p_start) {
-		return;
-	}
-	child_aligns.write[p_index].column_start = p_start;
-	queue_sort();
-	update_minimum_size();
-	emit_signal(SNAME("grid_changed"));
-}
-
-int WebGridContainer::get_child_column_start(int p_index) const {
-	ERR_FAIL_INDEX_V(p_index, child_aligns.size(), 0);
-	return child_aligns[p_index].column_start;
-}
-
-void WebGridContainer::set_child_column_span(int p_index, int p_span) {
-	ERR_FAIL_INDEX(p_index, child_aligns.size());
-	p_span = MAX(p_span, 1);
-	if (child_aligns[p_index].column_span == p_span) {
-		return;
-	}
-	child_aligns.write[p_index].column_span = p_span;
-	queue_sort();
-	update_minimum_size();
-	emit_signal(SNAME("grid_changed"));
-}
-
-int WebGridContainer::get_child_column_span(int p_index) const {
-	ERR_FAIL_INDEX_V(p_index, child_aligns.size(), 1);
-	return child_aligns[p_index].column_span;
-}
-
-void WebGridContainer::set_child_row_start(int p_index, int p_start) {
-	ERR_FAIL_INDEX(p_index, child_aligns.size());
-	p_start = MAX(p_start, 0);
-	if (child_aligns[p_index].row_start == p_start) {
-		return;
-	}
-	child_aligns.write[p_index].row_start = p_start;
-	queue_sort();
-	update_minimum_size();
-	emit_signal(SNAME("grid_changed"));
-}
-
-int WebGridContainer::get_child_row_start(int p_index) const {
-	ERR_FAIL_INDEX_V(p_index, child_aligns.size(), 0);
-	return child_aligns[p_index].row_start;
-}
-
-void WebGridContainer::set_child_row_span(int p_index, int p_span) {
-	ERR_FAIL_INDEX(p_index, child_aligns.size());
-	p_span = MAX(p_span, 1);
-	if (child_aligns[p_index].row_span == p_span) {
-		return;
-	}
-	child_aligns.write[p_index].row_span = p_span;
-	queue_sort();
-	update_minimum_size();
-	emit_signal(SNAME("grid_changed"));
-}
-
-int WebGridContainer::get_child_row_span(int p_index) const {
-	ERR_FAIL_INDEX_V(p_index, child_aligns.size(), 1);
-	return child_aligns[p_index].row_span;
-}
-
 //
 // Dynamic properties for the variable-length track and child lists.
 //
@@ -2415,7 +2530,7 @@ bool WebGridContainer::_set(const StringName &p_name, const Variant &p_value) {
 		}
 		int index = parts[1].to_int();
 		const String &field = parts[2];
-		if (index < 0) {
+		if (index < 0 || (field != "justify_self" && field != "align_self")) {
 			return false;
 		}
 		// Auto-grow so values restored from a saved scene are kept until the child
@@ -2432,18 +2547,6 @@ bool WebGridContainer::_set(const StringName &p_name, const Variant &p_value) {
 			return true;
 		} else if (field == "align_self") {
 			set_child_align_self(index, (SelfAlign)(int)p_value);
-			return true;
-		} else if (field == "column_start") {
-			set_child_column_start(index, (int)p_value);
-			return true;
-		} else if (field == "column_span") {
-			set_child_column_span(index, (int)p_value);
-			return true;
-		} else if (field == "row_start") {
-			set_child_row_start(index, (int)p_value);
-			return true;
-		} else if (field == "row_span") {
-			set_child_row_span(index, (int)p_value);
 			return true;
 		}
 		return false;
@@ -2492,18 +2595,6 @@ bool WebGridContainer::_get(const StringName &p_name, Variant &r_ret) const {
 		} else if (field == "align_self") {
 			r_ret = (int)child_aligns[index].align_self;
 			return true;
-		} else if (field == "column_start") {
-			r_ret = child_aligns[index].column_start;
-			return true;
-		} else if (field == "column_span") {
-			r_ret = child_aligns[index].column_span;
-			return true;
-		} else if (field == "row_start") {
-			r_ret = child_aligns[index].row_start;
-			return true;
-		} else if (field == "row_span") {
-			r_ret = child_aligns[index].row_span;
-			return true;
 		}
 		return false;
 	}
@@ -2540,10 +2631,6 @@ void WebGridContainer::_get_property_list(List<PropertyInfo> *p_list) const {
 		for (int i = 0; i < child_aligns.size(); i++) {
 			p_list->push_back(PropertyInfo(Variant::INT, vformat("children/%d/justify_self", i), PROPERTY_HINT_ENUM, self_hint));
 			p_list->push_back(PropertyInfo(Variant::INT, vformat("children/%d/align_self", i), PROPERTY_HINT_ENUM, self_hint));
-			p_list->push_back(PropertyInfo(Variant::INT, vformat("children/%d/column_start", i), PROPERTY_HINT_RANGE, "0,64,1"));
-			p_list->push_back(PropertyInfo(Variant::INT, vformat("children/%d/column_span", i), PROPERTY_HINT_RANGE, "1,64,1"));
-			p_list->push_back(PropertyInfo(Variant::INT, vformat("children/%d/row_start", i), PROPERTY_HINT_RANGE, "0,64,1"));
-			p_list->push_back(PropertyInfo(Variant::INT, vformat("children/%d/row_span", i), PROPERTY_HINT_RANGE, "1,64,1"));
 		}
 	}
 }
@@ -2554,7 +2641,7 @@ bool WebGridContainer::_property_can_revert(const StringName &p_name) const {
 		return name.ends_with("/unit") || name.ends_with("/value");
 	}
 	if (name.begins_with("children/")) {
-		return true;
+		return name.ends_with("/justify_self") || name.ends_with("/align_self");
 	}
 	return false;
 }
@@ -2571,14 +2658,6 @@ bool WebGridContainer::_property_get_revert(const StringName &p_name, Variant &r
 	}
 	if (name.ends_with("/justify_self") || name.ends_with("/align_self")) {
 		r_property = (int)SELF_AUTO;
-		return true;
-	}
-	if (name.ends_with("/column_start") || name.ends_with("/row_start")) {
-		r_property = 0;
-		return true;
-	}
-	if (name.ends_with("/column_span") || name.ends_with("/row_span")) {
-		r_property = 1;
 		return true;
 	}
 	return false;
@@ -2630,20 +2709,14 @@ void WebGridContainer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_child_justify_self", "index"), &WebGridContainer::get_child_justify_self);
 	ClassDB::bind_method(D_METHOD("set_child_align_self", "index", "align"), &WebGridContainer::set_child_align_self);
 	ClassDB::bind_method(D_METHOD("get_child_align_self", "index"), &WebGridContainer::get_child_align_self);
-	ClassDB::bind_method(D_METHOD("set_child_column_start", "index", "start"), &WebGridContainer::set_child_column_start);
-	ClassDB::bind_method(D_METHOD("get_child_column_start", "index"), &WebGridContainer::get_child_column_start);
-	ClassDB::bind_method(D_METHOD("set_child_column_span", "index", "span"), &WebGridContainer::set_child_column_span);
-	ClassDB::bind_method(D_METHOD("get_child_column_span", "index"), &WebGridContainer::get_child_column_span);
-	ClassDB::bind_method(D_METHOD("set_child_row_start", "index", "start"), &WebGridContainer::set_child_row_start);
-	ClassDB::bind_method(D_METHOD("get_child_row_start", "index"), &WebGridContainer::get_child_row_start);
-	ClassDB::bind_method(D_METHOD("set_child_row_span", "index", "span"), &WebGridContainer::set_child_row_span);
-	ClassDB::bind_method(D_METHOD("get_child_row_span", "index"), &WebGridContainer::get_child_row_span);
-
 	ClassDB::bind_method(D_METHOD("set_draw_grid", "mode"), &WebGridContainer::set_draw_grid);
 	ClassDB::bind_method(D_METHOD("get_draw_grid"), &WebGridContainer::get_draw_grid);
 	ClassDB::bind_method(D_METHOD("is_grid_editable"), &WebGridContainer::is_grid_editable);
 	ClassDB::bind_method(D_METHOD("set_runtime_interactive", "enabled"), &WebGridContainer::set_runtime_interactive);
 	ClassDB::bind_method(D_METHOD("is_runtime_interactive"), &WebGridContainer::is_runtime_interactive);
+	ClassDB::bind_method(D_METHOD("set_runtime_overlay_parent", "parent"), &WebGridContainer::set_runtime_overlay_parent);
+	ClassDB::bind_method(D_METHOD("get_runtime_overlay_parent"), &WebGridContainer::get_runtime_overlay_parent);
+	ClassDB::bind_method(D_METHOD("get_runtime_overlay_control"), &WebGridContainer::get_runtime_overlay_control);
 	ClassDB::bind_method(D_METHOD("set_show_merge_button", "enabled"), &WebGridContainer::set_show_merge_button);
 	ClassDB::bind_method(D_METHOD("is_show_merge_button"), &WebGridContainer::is_show_merge_button);
 
@@ -2654,6 +2727,7 @@ void WebGridContainer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_axis_available", "is_columns"), &WebGridContainer::get_axis_available);
 	ClassDB::bind_method(D_METHOD("get_effective_column_count"), &WebGridContainer::get_effective_column_count);
 	ClassDB::bind_method(D_METHOD("get_effective_row_count"), &WebGridContainer::get_effective_row_count);
+	ClassDB::bind_method(D_METHOD("get_child_resolved_grid_rect", "index"), &WebGridContainer::get_child_resolved_grid_rect);
 
 	ClassDB::bind_method(D_METHOD("find_line_at", "local_position", "radius"), &WebGridContainer::find_line_at, DEFVAL(8.0));
 	ClassDB::bind_method(D_METHOD("begin_line_drag", "is_columns", "boundary", "ctrl"), &WebGridContainer::begin_line_drag, DEFVAL(false));
@@ -2669,8 +2743,12 @@ void WebGridContainer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("clear_cell_selection"), &WebGridContainer::clear_cell_selection);
 	ClassDB::bind_method(D_METHOD("has_cell_selection"), &WebGridContainer::has_cell_selection);
 	ClassDB::bind_method(D_METHOD("get_selection_rect"), &WebGridContainer::get_selection_rect);
+	ClassDB::bind_method(D_METHOD("can_merge_selected_cells"), &WebGridContainer::can_merge_selected_cells);
+	ClassDB::bind_method(D_METHOD("can_unmerge_selected_cells"), &WebGridContainer::can_unmerge_selected_cells);
 	ClassDB::bind_method(D_METHOD("merge_selected_cells"), &WebGridContainer::merge_selected_cells);
 	ClassDB::bind_method(D_METHOD("unmerge_selected_cells"), &WebGridContainer::unmerge_selected_cells);
+	ClassDB::bind_method(D_METHOD("set_merged_cell_rects", "rects"), &WebGridContainer::set_merged_cell_rects);
+	ClassDB::bind_method(D_METHOD("get_merged_cell_rects"), &WebGridContainer::get_merged_cell_rects);
 	ClassDB::bind_method(D_METHOD("get_merged_rects"), &WebGridContainer::get_merged_rects);
 	ClassDB::bind_method(D_METHOD("get_grid_line_segments"), &WebGridContainer::get_grid_line_segments);
 	ClassDB::bind_method(D_METHOD("get_gap_rects"), &WebGridContainer::get_gap_rects);
@@ -2686,6 +2764,7 @@ void WebGridContainer::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "runtime_show_merge_button"), "set_show_merge_button", "is_show_merge_button");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "column_count", PROPERTY_HINT_RANGE, "1,64,1"), "set_column_count", "get_column_count");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "row_count", PROPERTY_HINT_RANGE, "1,64,1"), "set_row_count", "get_row_count");
+	ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "merged_cell_rects", PROPERTY_HINT_ARRAY_TYPE, "Rect2i"), "set_merged_cell_rects", "get_merged_cell_rects");
 	ADD_GROUP("Gap", "");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "column_gap", PROPERTY_HINT_RANGE, "0,1000,0.01,or_greater"), "set_column_gap", "get_column_gap");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "row_gap", PROPERTY_HINT_RANGE, "0,1000,0.01,or_greater"), "set_row_gap", "get_row_gap");
@@ -2700,6 +2779,9 @@ void WebGridContainer::_bind_methods() {
 	ADD_SIGNAL(MethodInfo("cells_selected", PropertyInfo(Variant::RECT2I, "rect")));
 	ADD_SIGNAL(MethodInfo("cells_merged", PropertyInfo(Variant::INT, "child_index"), PropertyInfo(Variant::RECT2I, "rect")));
 	ADD_SIGNAL(MethodInfo("cells_unmerged", PropertyInfo(Variant::INT, "child_index")));
+	ADD_SIGNAL(MethodInfo("merged_cells_changed"));
+	ADD_SIGNAL(MethodInfo("merge_available_changed", PropertyInfo(Variant::BOOL, "available")));
+	ADD_SIGNAL(MethodInfo("unmerge_available_changed", PropertyInfo(Variant::BOOL, "available")));
 
 	BIND_ENUM_CONSTANT(DRAW_GRID_SELECTED);
 	BIND_ENUM_CONSTANT(DRAW_GRID_ALWAYS);
@@ -2745,6 +2827,7 @@ void WebGridContainer::_bind_methods() {
 }
 
 WebGridContainer::WebGridContainer() {
+	set_notify_transform(true);
 	_resize_tracks(column_tracks, column_count);
 	_resize_tracks(row_tracks, row_count);
 }
