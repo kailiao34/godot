@@ -77,7 +77,6 @@ class WebGridContainerEditorPlugin : public EditorPlugin {
 	void _commit_line_drag();
 	void _merge_selection();
 	void _unmerge_selection();
-	bool _selection_has_merge() const;
 	void _update_toolbar();
 	void _set_cursor(Control::CursorShape p_shape);
 

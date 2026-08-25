@@ -30,8 +30,11 @@
 
 #include "web_grid_overlay.h"
 
+#include "core/math/geometry_2d.h"
 #include "scene/gui/control.h"
 #include "scene/gui/web_grid_container.h"
+#include "scene/gui/web_grid_overlay_internal.h"
+#include "servers/rendering/rendering_server.h"
 
 namespace {
 
@@ -45,8 +48,8 @@ const Color OVERLAY_ACCENT = Color(0.718f, 0.616f, 0.941f); // #b79df0 - frame, 
 const Color OVERLAY_SELECT = Color(0.310f, 0.765f, 0.851f); // #4fc3d9 - cell selection.
 const Color OVERLAY_NEUTRAL = Color(0.863f, 0.882f, 0.894f); // #dce1e4 - cell hatch and borders.
 
-const float CELL_HATCH_ALPHA = 0.05f;
-const float CELL_BORDER_ALPHA = 0.22f;
+const float CELL_HATCH_ALPHA = 0.10f;
+const float CELL_BORDER_ALPHA = 0.78f;
 const float GAP_HATCH_ALPHA = 0.34f;
 const float MERGE_FILL_ALPHA = 0.14f;
 const float MERGE_BORDER_ALPHA = 0.55f;
@@ -60,7 +63,7 @@ const float CELL_HATCH_BAND = 8.0f;
 const float GAP_HATCH_PERIOD = 6.0f; // CSS repeating-linear-gradient(45deg, x 0 3px, transparent 3px 6px).
 const float GAP_HATCH_BAND = 3.0f;
 const float CELL_DASH = 4.0f;
-const float CELL_BORDER_WIDTH = 1.0f;
+const float CELL_BORDER_WIDTH = 1.5f;
 const float FRAME_WIDTH = 1.5f;
 const float SELECT_BORDER_WIDTH = 2.0f;
 
@@ -72,6 +75,14 @@ const Vector2 GAP_HATCH_NORMAL = Vector2(0.70710678f, -0.70710678f); // 45deg.
 // A pathological zoom / track combination could ask for an unbounded number of stripes;
 // past this many the hatch reads as a flat fill anyway, so it is simply skipped.
 const int MAX_HATCH_STRIPES = 512;
+
+// The clipper can emit the same point twice when an input vertex lies exactly on a
+// clipping plane. Keeping those points is usually harmless, but a stripe that is also
+// very small can then become impossible for Geometry2D's ear clipper to triangulate.
+// Use a scale-relative epsilon so the cleanup remains stable at every canvas zoom.
+float _geometry_epsilon(float p_period) {
+	return MAX(CMP_EPSILON, p_period * 0.000001f);
+}
 
 // Sutherland-Hodgman clip of a convex polygon against the half-plane dot(n, p) <= d.
 Vector<Point2> _clip_half_plane(const Vector<Point2> &p_poly, const Vector2 &p_normal, float p_d) {
@@ -92,13 +103,55 @@ Vector<Point2> _clip_half_plane(const Vector<Point2> &p_poly, const Vector2 &p_n
 	return out;
 }
 
-// Fills p_rect with a CSS repeating-linear-gradient style diagonal hatch: bands of
-// p_band width every p_period along p_normal, each one clipped to the rect so nothing
-// bleeds outside the cell (a thick diagonal line would).
-void _draw_hatch(Control *p_canvas, const Rect2 &p_rect, const Vector2 &p_normal, float p_band, float p_period, const Color &p_color) {
-	if (p_rect.size.x <= 0.0f || p_rect.size.y <= 0.0f || p_period <= 0.0f || p_band <= 0.0f) {
-		return;
+Vector<Point2> _sanitize_polygon(const Vector<Point2> &p_polygon, float p_epsilon) {
+	Vector<Point2> clean;
+	const float epsilon_squared = p_epsilon * p_epsilon;
+	for (const Point2 &point : p_polygon) {
+		if (!point.is_finite()) {
+			return Vector<Point2>();
+		}
+		if (clean.is_empty() || clean[clean.size() - 1].distance_squared_to(point) > epsilon_squared) {
+			clean.push_back(point);
+		}
 	}
+	if (clean.size() > 1 && clean[0].distance_squared_to(clean[clean.size() - 1]) <= epsilon_squared) {
+		clean.resize(clean.size() - 1);
+	}
+
+	// Clipping an axis-aligned rectangle can leave collinear boundary points behind.
+	// Remove only a middle point (the two edges continue in the same direction), never
+	// a genuine reversal.
+	bool removed = true;
+	while (removed && clean.size() >= 3) {
+		removed = false;
+		for (int i = 0; i < clean.size(); i++) {
+			const Point2 &previous = clean[(i + clean.size() - 1) % clean.size()];
+			const Point2 &current = clean[i];
+			const Point2 &next = clean[(i + 1) % clean.size()];
+			const Vector2 incoming = current - previous;
+			const Vector2 outgoing = next - current;
+			const float edge_scale = MAX(incoming.length(), outgoing.length());
+			if (edge_scale <= p_epsilon ||
+					(Math::abs(incoming.cross(outgoing)) <= p_epsilon * edge_scale && incoming.dot(outgoing) >= 0.0f)) {
+				clean.remove_at(i);
+				removed = true;
+				break;
+			}
+		}
+	}
+	return clean;
+}
+
+} // namespace
+
+Vector<WebGridOverlayInternal::HatchPolygon> WebGridOverlayInternal::build_hatch_polygons(const Rect2 &p_rect, const Vector2 &p_normal, float p_band, float p_period) {
+	Vector<HatchPolygon> polygons;
+	if (!p_rect.position.is_finite() || !p_rect.size.is_finite() || !p_normal.is_finite() ||
+			!Math::is_finite(p_band) || !Math::is_finite(p_period) ||
+			p_rect.size.x <= 0.0f || p_rect.size.y <= 0.0f || p_period <= 0.0f || p_band <= 0.0f) {
+		return polygons;
+	}
+
 	Vector<Point2> rect_poly;
 	rect_poly.push_back(p_rect.position);
 	rect_poly.push_back(p_rect.position + Vector2(p_rect.size.x, 0));
@@ -109,24 +162,58 @@ void _draw_hatch(Control *p_canvas, const Rect2 &p_rect, const Vector2 &p_normal
 	float d_max = -1e30f;
 	for (int i = 0; i < rect_poly.size(); i++) {
 		const float d = p_normal.dot(rect_poly[i]);
+		if (!Math::is_finite(d)) {
+			return polygons;
+		}
 		d_min = MIN(d_min, d);
 		d_max = MAX(d_max, d);
 	}
-	const int first = (int)Math::floor(d_min / p_period);
-	const int last = (int)Math::ceil(d_max / p_period);
-	if (last - first > MAX_HATCH_STRIPES) {
-		return;
+
+	// A band [k * period, k * period + band] has positive overlap with the rect's
+	// projection only when its upper edge is above d_min and its lower edge is below
+	// d_max. Strict bounds avoid generating a zero-area polygon at a tangent corner.
+	const double first_index = Math::floor((double)(d_min - p_band) / p_period) + 1.0;
+	const double last_index = Math::ceil((double)d_max / p_period) - 1.0;
+	if (!Math::is_finite(first_index) || !Math::is_finite(last_index) || first_index > last_index ||
+			first_index < INT32_MIN || last_index > INT32_MAX || last_index - first_index + 1.0 > MAX_HATCH_STRIPES) {
+		return polygons;
 	}
-	for (int k = first; k <= last; k++) {
+
+	const int64_t first = (int64_t)first_index;
+	const int64_t last = (int64_t)last_index;
+	const float epsilon = _geometry_epsilon(p_period);
+	for (int64_t k = first; k <= last; k++) {
 		const float d0 = k * p_period;
+		if (!Math::is_finite(d0) || d0 >= d_max - epsilon || d0 + p_band <= d_min + epsilon) {
+			continue;
+		}
 		Vector<Point2> stripe = _clip_half_plane(rect_poly, -p_normal, -d0);
 		if (stripe.size() < 3) {
 			continue;
 		}
 		stripe = _clip_half_plane(stripe, p_normal, d0 + p_band);
+		stripe = _sanitize_polygon(stripe, epsilon);
 		if (stripe.size() >= 3) {
-			p_canvas->draw_colored_polygon(stripe, p_color);
+			Vector<int> indices = Geometry2D::triangulate_polygon(stripe);
+			if (!indices.is_empty()) {
+				polygons.push_back(HatchPolygon{ stripe, indices });
+			}
 		}
+	}
+	return polygons;
+}
+
+namespace {
+
+// Fills p_rect with a CSS repeating-linear-gradient style diagonal hatch: bands of
+// p_band width every p_period along p_normal, each one clipped to the rect so nothing
+// bleeds outside the cell (a thick diagonal line would).
+void _draw_hatch(Control *p_canvas, const Rect2 &p_rect, const Vector2 &p_normal, float p_band, float p_period, const Color &p_color) {
+	const Vector<WebGridOverlayInternal::HatchPolygon> polygons = WebGridOverlayInternal::build_hatch_polygons(p_rect, p_normal, p_band, p_period);
+	Vector<Color> colors;
+	colors.push_back(p_color);
+	for (const WebGridOverlayInternal::HatchPolygon &polygon : polygons) {
+		RenderingServer::get_singleton()->canvas_item_add_triangle_array(p_canvas->get_canvas_item(), polygon.indices, polygon.points, colors, Vector<Point2>());
 	}
 }
 
@@ -161,8 +248,10 @@ void WebGridOverlay::draw(Control *p_canvas, const WebGridContainer *p_grid, con
 
 	// Everything below is authored in the grid's local space; screen_px() converts a
 	// screen-pixel measurement into that space, so strokes and hatching keep a constant
-	// on-screen size at any canvas zoom.
-	const float scale = MAX((float)p_xform.get_scale().x, 0.0001f);
+	// on-screen size at any canvas zoom. At runtime p_xform is identity, but the overlay
+	// can still be below a scaled workspace, so include the canvas' global transform.
+	const Transform2D screen_xform = p_canvas->get_global_transform_with_canvas() * p_xform;
+	const float scale = MAX(Math::abs((float)screen_xform.get_scale().x), 0.0001f);
 	auto screen_px = [scale](float p_pixels) { return p_pixels / scale; };
 
 	Vector<Rect2i> merged;
@@ -172,16 +261,28 @@ void WebGridOverlay::draw(Control *p_canvas, const WebGridContainer *p_grid, con
 			merged.push_back(arr[i]);
 		}
 	}
-	// Index of the merged area covering a cell, or -1.
-	auto merged_at = [&merged](int p_col, int p_row) {
-		for (int i = 0; i < merged.size(); i++) {
-			const Rect2i &m = merged[i];
-			if (p_col >= m.position.x && p_col < m.position.x + m.size.x &&
-					p_row >= m.position.y && p_row < m.position.y + m.size.y) {
-				return i;
+	// Dense owner lookup: build once when the overlay redraws, then every cell lookup is
+	// O(1). This avoids the old rows*columns*merge_count scan and is tiny for the grid's
+	// supported track counts.
+	Vector<int> merge_owner;
+	merge_owner.resize(cols * rows);
+	for (int i = 0; i < merge_owner.size(); i++) {
+		merge_owner.write[i] = -1;
+	}
+	for (int i = 0; i < merged.size(); i++) {
+		const Rect2i &m = merged[i];
+		const int x0 = CLAMP(m.position.x, 0, cols);
+		const int y0 = CLAMP(m.position.y, 0, rows);
+		const int x1 = CLAMP(m.position.x + m.size.x, 0, cols);
+		const int y1 = CLAMP(m.position.y + m.size.y, 0, rows);
+		for (int row = y0; row < y1; row++) {
+			for (int column = x0; column < x1; column++) {
+				merge_owner.write[row * cols + column] = i;
 			}
 		}
-		return -1;
+	}
+	auto merged_at = [&merge_owner, cols](int p_col, int p_row) {
+		return merge_owner[p_row * cols + p_col];
 	};
 	auto cell_rect = [&](int p_col, int p_row, int p_col_span, int p_row_span) {
 		const int c0 = CLAMP(p_col, 0, cols - 1);
@@ -218,7 +319,7 @@ void WebGridOverlay::draw(Control *p_canvas, const WebGridContainer *p_grid, con
 				p_canvas->draw_rect(rect.grow(-screen_px(CELL_BORDER_WIDTH * 0.5f)), Color(OVERLAY_ACCENT, MERGE_BORDER_ALPHA), false, screen_px(CELL_BORDER_WIDTH), true);
 			} else {
 				_draw_hatch(p_canvas, rect, CELL_HATCH_NORMAL, screen_px(CELL_HATCH_BAND), screen_px(CELL_HATCH_PERIOD), Color(OVERLAY_NEUTRAL, CELL_HATCH_ALPHA));
-				_draw_dashed_rect(p_canvas, rect.grow(-screen_px(CELL_BORDER_WIDTH * 0.5f)), Color(OVERLAY_NEUTRAL, CELL_BORDER_ALPHA), screen_px(CELL_BORDER_WIDTH), screen_px(CELL_DASH));
+				_draw_dashed_rect(p_canvas, rect.grow(-screen_px(CELL_BORDER_WIDTH * 0.5f)), Color(OVERLAY_ACCENT, CELL_BORDER_ALPHA), screen_px(CELL_BORDER_WIDTH), screen_px(CELL_DASH));
 			}
 		}
 	}
