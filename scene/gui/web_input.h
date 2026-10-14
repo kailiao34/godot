@@ -258,6 +258,9 @@ private:
 	// text and the control do not fit on one line, the browser breaks between
 	// them, so a left/right label stacks like a top/bottom one.
 	real_t label_wrap_width = -1;
+	// The label box's max-width in px (-1 = none): a stacked label aligns its
+	// lines in the clamped box, as `max-width:100%` does in narrow views.
+	real_t label_max_width = -1;
 	// The <label>'s own letter-spacing and text-align: an element, it inherits
 	// them from the page, while the control inside resets them (UA) unless the
 	// node styles them itself (css).
@@ -371,6 +374,7 @@ private:
 	int hovered_spin = 0; // type=number spinner: 1 up, -1 down, 0 neither.
 	bool hovered_file_btn = false; // pointer over type=file's "Choose File".
 	// Colour drop-down (created lazily on first use).
+	bool external_color_picker_enabled = false;
 	PopupPanel *color_popup = nullptr;
 	ColorPicker *color_picker = nullptr;
 
@@ -510,6 +514,9 @@ public:
 	// Harness/bridge contract: resolved box model for compare.py.
 	Dictionary get_test_metrics() const;
 
+	void set_external_color_picker_enabled(bool p_enabled);
+	bool is_external_color_picker_enabled() const;
+	void apply_external_color(const Color &p_color);
 	void set_value(const String &p_value);
 	String get_value() const;
 	void set_placeholder(const String &p_placeholder);
@@ -570,6 +577,8 @@ public:
 	LabelPosition get_label_position() const;
 	void set_label_wrap_width(real_t p_width);
 	real_t get_label_wrap_width() const;
+	void set_label_max_width(real_t p_width);
+	real_t get_label_max_width() const;
 	void set_label_letter_spacing(real_t p_spacing);
 	real_t get_label_letter_spacing() const;
 	void set_label_decoration_lines(int p_lines);

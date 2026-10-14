@@ -15,6 +15,11 @@
 	<tutorials>
 	</tutorials>
 	<methods>
+		<method name="apply_external_color">
+			<return type="void" />
+			<param index="0" name="color" type="Color" />
+			<description>Applies the application's shared color selection to a writable color input, emitting [signal value_changed] with a lowercase RGB hex value.</description>
+		</method>
 		<method name="set_label_cursor_shape"><return type="void" /><param index="0" name="shape" type="int" enum="Control.CursorShape" /><description>Sets the wrapping label's cursor independently of the native control.</description></method>
 		<method name="get_label_cursor_shape" qualifiers="const"><return type="int" enum="Control.CursorShape" /><description>Returns the wrapping label's cursor.</description></method>
 		<method name="get_label_text_rect" qualifiers="const"><return type="Rect2" /><description>Returns the shaped wrapping label's local text rectangle.</description></method>
@@ -132,6 +137,9 @@
 		</method>
 	</methods>
 	<members>
+		<member name="external_color_picker_enabled" type="bool" setter="set_external_color_picker_enabled" getter="is_external_color_picker_enabled" default="false">
+			Delegates color selection to [signal color_picker_requested] instead of creating a native [ColorPicker].
+		</member>
 		<member name="accept" type="String" setter="set_accept" getter="get_accept" default="&quot;&quot;">
 			For [constant TYPE_FILE], the comma-separated list of accepted file types (extensions like [code].png[/code] or MIME wildcards like [code]image/*[/code]), used to build the file dialog filters. Equivalent to the HTML [code]accept[/code] attribute.
 		</member>
@@ -214,6 +222,10 @@
 		</member>
 	</members>
 	<signals>
+		<signal name="color_picker_requested">
+			<param index="0" name="color" type="Color" />
+			<description>Requests an application color picker for this writable color input. Finish with [method apply_external_color].</description>
+		</signal>
 		<signal name="form_submitted">
 			<param index="0" name="data" type="Dictionary" />
 			<description>

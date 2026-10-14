@@ -340,9 +340,12 @@ Ref<Font> WebTextArea::_ua_monospace_font() {
 		if (face > 0) {
 			ff->set_face_index(0, face);
 		}
-		// Unhinted, sub-pixel positioned advances, like the browser.
+		// Unhinted, sub-pixel positioned advances, like the browser, and the
+		// face's embedded bitmap strikes where it has them (zh-TW MingLiU at
+		// the UA 13.33px is drawn from its 13px strike).
 		ff->set_hinting(TextServer::HINTING_NONE);
 		ff->set_subpixel_positioning(TextServer::SUBPIXEL_POSITIONING_ONE_QUARTER);
+		ff->set_disable_embedded_bitmaps(false);
 		ua_font = ff;
 	} else {
 		Ref<SystemFont> sf;
@@ -395,6 +398,10 @@ static Ref<FontFile> _ta_system_font_file(const String &p_family, int p_weight) 
 	}
 	ff->set_hinting(TextServer::HINTING_NONE);
 	ff->set_subpixel_positioning(TextServer::SUBPIXEL_POSITIONING_ONE_QUARTER);
+	// The browser draws a face's embedded bitmap strike at the sizes it has
+	// one for (MingLiU, SimSun, MS Gothic at 12-16px), whole-pixel advances
+	// included.
+	ff->set_disable_embedded_bitmaps(false);
 	return ff;
 }
 
