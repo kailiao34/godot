@@ -100,6 +100,9 @@ public:
 	struct ChildAlign {
 		SelfAlign justify_self = SELF_AUTO;
 		SelfAlign align_self = SELF_AUTO;
+		// Optional content contributions, distinct from the Control's hard minimum.
+		Vector2 min_content = Vector2(-1, -1);
+		Vector2 max_content = Vector2(-1, -1);
 	};
 
 	// Where a child ends up after auto-placement, in 0-indexed track coordinates.
@@ -205,7 +208,7 @@ private:
 
 	// Per-track content-based minimum on the given axis, span-aware: an item that
 	// spans several tracks distributes its minimum across the spanned tracks.
-	void _compute_track_content_min(bool p_is_columns, const Vector<GridArea> &p_areas, int p_count, float p_available, Vector<float> &r_content_min) const;
+	void _compute_track_content_min(bool p_is_columns, const Vector<GridArea> &p_areas, int p_count, float p_available, Vector<float> &r_content_min, bool p_max_content = false) const;
 	// Resolves one axis. p_available is the CONTENT size (already minus border+padding);
 	// p_origin is added to every track position so the grid sits inside the content box.
 	AxisLayout _resolve_axis(bool p_is_columns, float p_available, const Vector<GridArea> &p_areas, int p_count, float p_origin = 0.0f) const;
@@ -224,6 +227,7 @@ private:
 
 	void _resort();
 	Size2 _get_minimum_size() const;
+	Size2 _get_intrinsic_size(bool p_max_content) const;
 
 	// Rect (in local container space) covering the cell range [p_col,p_row] with
 	// the given span, using the current resolved layout. Used by hit-testing,
@@ -363,6 +367,8 @@ public:
 	// Used by the canvas editor to draw and hit-test grid lines. Each array has
 	// one entry per track on the requested axis (including implicit tracks).
 	PackedFloat32Array get_resolved_column_offsets() const;
+	void set_child_intrinsic_sizes(int p_index, Vector2 p_min_content, Vector2 p_max_content);
+	Size2 get_max_content_size() const;
 	PackedFloat32Array get_resolved_column_sizes() const;
 	PackedFloat32Array get_resolved_row_offsets() const;
 	PackedFloat32Array get_resolved_row_sizes() const;

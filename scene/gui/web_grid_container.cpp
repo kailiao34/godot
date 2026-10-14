@@ -283,7 +283,7 @@ void WebGridContainer::_place_items(Vector<GridArea> &r_areas, int &r_cols, int 
 // minimum of the children in that track. Items that span several tracks have
 // their leftover minimum (after subtracting definite sizes and gaps) distributed
 // across the spanned auto/fr tracks, matching the CSS spanning-item contribution.
-void WebGridContainer::_compute_track_content_min(bool p_is_columns, const Vector<GridArea> &p_areas, int p_count, float p_available, Vector<float> &r_content_min) const {
+void WebGridContainer::_compute_track_content_min(bool p_is_columns, const Vector<GridArea> &p_areas, int p_count, float p_available, Vector<float> &r_content_min, bool p_max_content) const {
 	const Vector<GridTrack> &tracks = p_is_columns ? column_tracks : row_tracks;
 	float gap = p_is_columns ? column_gap : row_gap;
 
@@ -317,6 +317,13 @@ void WebGridContainer::_compute_track_content_min(bool p_is_columns, const Vecto
 		}
 		Size2 ms = c->get_combined_minimum_size();
 		float v = p_is_columns ? ms.width : ms.height;
+		if (idx < child_aligns.size()) {
+			const Vector2 &contribution = p_max_content ? child_aligns[idx].max_content : child_aligns[idx].min_content;
+			float value = p_is_columns ? contribution.x : contribution.y;
+			if (value >= 0.0f) {
+				v = value;
+			}
+		}
 		if (span <= 1) {
 			if (v > r_content_min[start]) {
 				r_content_min.write[start] = v;
@@ -390,6 +397,8 @@ WebGridContainer::AxisLayout WebGridContainer::_resolve_axis(bool p_is_columns, 
 
 	Vector<float> content_min;
 	_compute_track_content_min(p_is_columns, p_areas, count, p_available, content_min);
+	Vector<float> content_max;
+	_compute_track_content_min(p_is_columns, p_areas, count, p_available, content_max, true);
 
 	float total_gap = gap * MAX(count - 1, 0);
 	float space_for_tracks = p_available - total_gap;
@@ -419,12 +428,9 @@ WebGridContainer::AxisLayout WebGridContainer::_resolve_axis(bool p_is_columns, 
 				is_fr.write[i] = true;
 				sizes.write[i] = 0.0f;
 				total_fr += MAX(t.value, 0.0f);
-				// The render server always emits `minmax(0, fr)` for flexible
-				// tracks, so an fr track has a zero content floor: content wider
-				// than its share overflows the track instead of growing it. Clear
-				// the intrinsic minimum here so the fr distribution below (which
-				// caps at content_min) matches the browser exactly.
-				content_min.write[i] = 0.0f;
+				// A bare fr track has an automatic minimum, supplied by the
+				// items' intrinsic contributions. Preserve that floor for the
+				// iterative distribution below, including overflowing grids.
 			} break;
 			case UNIT_AUTO:
 			default: {
@@ -436,6 +442,46 @@ WebGridContainer::AxisLayout WebGridContainer::_resolve_axis(bool p_is_columns, 
 	}
 
 	float free = space_for_tracks - sum_non_fr_base;
+	// Maximize intrinsic tracks toward their max-content growth limits before
+	// distributing fractional space or stretching auto tracks. A capped track
+	// returns its unused share to the others; min-content remains a hard floor.
+	float growth_space = free;
+	for (int i = 0; i < count; i++) {
+		if (is_fr[i]) {
+			growth_space -= content_min[i];
+		}
+	}
+	Vector<bool> growable;
+	growable.resize(count);
+	for (int i = 0; i < count; i++) {
+		const GridTrack &t = (i < tracks.size()) ? tracks[i] : GridTrack();
+		growable.write[i] = t.unit == UNIT_AUTO && content_max[i] > sizes[i];
+	}
+	while (growth_space > CMP_EPSILON) {
+		int active = 0;
+		for (int i = 0; i < count; i++) {
+			active += growable[i] ? 1 : 0;
+		}
+		if (active == 0) {
+			break;
+		}
+		float share = growth_space / active;
+		float consumed = 0.0f;
+		for (int i = 0; i < count; i++) {
+			if (!growable[i]) {
+				continue;
+			}
+			float add = MIN(share, content_max[i] - sizes[i]);
+			sizes.write[i] += add;
+			consumed += add;
+			growable.write[i] = content_max[i] - sizes[i] > CMP_EPSILON;
+		}
+		if (consumed <= CMP_EPSILON) {
+			break;
+		}
+		growth_space -= consumed;
+		free -= consumed;
+	}
 
 	// Step 2: distribute the leftover among fr tracks by fraction. An fr track may
 	// not be smaller than its content floor, so cap those iteratively (matching
@@ -675,7 +721,7 @@ void WebGridContainer::_resort() {
 	_update_merge_availability();
 }
 
-Size2 WebGridContainer::_get_minimum_size() const {
+Size2 WebGridContainer::_get_intrinsic_size(bool p_max_content) const {
 	Vector<GridArea> areas;
 	int eff_cols = 1;
 	int eff_rows = 1;
@@ -684,8 +730,8 @@ Size2 WebGridContainer::_get_minimum_size() const {
 	Vector<float> col_min;
 	Vector<float> row_min;
 	// Intrinsic minimum: percentage tracks contribute 0 (available is undefined).
-	_compute_track_content_min(true, areas, eff_cols, 0.0f, col_min);
-	_compute_track_content_min(false, areas, eff_rows, 0.0f, row_min);
+	_compute_track_content_min(true, areas, eff_cols, 0.0f, col_min, p_max_content);
+	_compute_track_content_min(false, areas, eff_rows, 0.0f, row_min, p_max_content);
 
 	Size2 ms;
 	for (int i = 0; i < eff_cols; i++) {
@@ -707,6 +753,25 @@ Size2 WebGridContainer::_get_minimum_size() const {
 
 Size2 WebGridContainer::get_minimum_size() const {
 	return _get_minimum_size();
+}
+
+Size2 WebGridContainer::_get_minimum_size() const {
+	return _get_intrinsic_size(false);
+}
+
+Size2 WebGridContainer::get_max_content_size() const {
+	return _get_intrinsic_size(true);
+}
+
+void WebGridContainer::set_child_intrinsic_sizes(int p_index, Vector2 p_min_content, Vector2 p_max_content) {
+	ERR_FAIL_INDEX(p_index, child_aligns.size());
+	if (child_aligns[p_index].min_content == p_min_content && child_aligns[p_index].max_content == p_max_content) {
+		return;
+	}
+	child_aligns.write[p_index].min_content = p_min_content;
+	child_aligns.write[p_index].max_content = p_max_content;
+	update_minimum_size();
+	queue_sort();
 }
 
 Rect2 WebGridContainer::_cell_range_rect(int p_col, int p_row, int p_col_span, int p_row_span) const {
@@ -2752,6 +2817,8 @@ void WebGridContainer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_child_placement_indices", "indices"), &WebGridContainer::set_child_placement_indices);
 	ClassDB::bind_method(D_METHOD("clear_child_placement_indices"), &WebGridContainer::clear_child_placement_indices);
 	ClassDB::bind_method(D_METHOD("set_child_justify_self", "index", "align"), &WebGridContainer::set_child_justify_self);
+	ClassDB::bind_method(D_METHOD("set_child_intrinsic_sizes", "index", "min_content", "max_content"), &WebGridContainer::set_child_intrinsic_sizes);
+	ClassDB::bind_method(D_METHOD("get_max_content_size"), &WebGridContainer::get_max_content_size);
 	ClassDB::bind_method(D_METHOD("get_child_justify_self", "index"), &WebGridContainer::get_child_justify_self);
 	ClassDB::bind_method(D_METHOD("set_child_align_self", "index", "align"), &WebGridContainer::set_child_align_self);
 	ClassDB::bind_method(D_METHOD("get_child_align_self", "index"), &WebGridContainer::get_child_align_self);

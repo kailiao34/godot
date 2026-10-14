@@ -14,6 +14,17 @@
 	<tutorials>
 	</tutorials>
 	<methods>
+		<method name="set_child_intrinsic_sizes">
+			<return type="void" />
+			<param index="0" name="index" type="int" />
+			<param index="1" name="min_content" type="Vector2" />
+			<param index="2" name="max_content" type="Vector2" />
+			<description>Supplies intrinsic track contributions independently of the child's hard minimum and final item size. A negative axis uses the child's combined minimum. Contributions follow sortable child indices and are runtime layout inputs.</description>
+		</method>
+		<method name="get_max_content_size" qualifiers="const">
+			<return type="Vector2" />
+			<description>Returns the preferred intrinsic border-box size, including tracks, gaps and padding, before a definite available size is assigned.</description>
+		</method>
 		<method name="begin_cell_drag">
 			<return type="void" />
 			<param index="0" name="cell" type="Vector2i" />
