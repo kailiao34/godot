@@ -143,6 +143,7 @@ public:
 		float main_min = 0.0;
 		float main_max = 0.0;
 		float outer_cross = 0.0; // Natural cross size (used as hypothetical).
+		bool cross_size_auto = true; // Independent of a nonzero intrinsic minimum.
 		float cross_min = 0.0;
 		float cross_max = 0.0;
 
@@ -235,6 +236,8 @@ public:
 	float get_item_flex_shrink(Control *p_child) const;
 	void set_item_flex_basis(Control *p_child, float p_basis);
 	float get_item_flex_basis(Control *p_child) const;
+	void set_item_cross_size_auto(Control *p_child, bool p_auto);
+	bool get_item_cross_size_auto(Control *p_child) const;
 	void set_item_order(Control *p_child, int p_order);
 	int get_item_order(Control *p_child) const;
 

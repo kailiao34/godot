@@ -314,6 +314,7 @@ void WebFlexContainer::_resort() {
 		it.flex_shrink = MAX(0.0f, (float)get_item_flex_shrink(child));
 		it.flex_basis = get_item_flex_basis(child);
 		it.align_self = get_item_align_self(child);
+		it.cross_size_auto = get_item_cross_size_auto(child);
 
 		const Size2 minsize = child->get_combined_minimum_size();
 		const Size2 maxsize = child->get_combined_maximum_size();
@@ -324,7 +325,7 @@ void WebFlexContainer::_resort() {
 		it.cross_min = cross_of(minsize);
 		it.main_max = main_of(maxsize);
 		it.cross_max = cross_of(maxsize);
-		it.outer_cross = cross_of(minsize); // Specified (content) cross size; 0 means auto.
+		it.outer_cross = cross_of(minsize); // Hypothetical cross size, including intrinsic content.
 
 		// Flex base size: explicit basis, or the content main size for `auto`.
 		it.base_size = (it.flex_basis >= 0.0) ? it.flex_basis : main_of(minsize);
@@ -563,9 +564,9 @@ void WebFlexContainer::_resort() {
 			const float line_cross = line.cross_size;
 
 			if (resolved == ALIGN_SELF_STRETCH) {
-				// `stretch` only grows items whose cross size is auto (content 0);
-				// an explicit cross size is preserved and aligned to the line start.
-				float cs = (it.outer_cross > 0.0) ? it.outer_cross : line_cross;
+				// Intrinsic content is not a specified cross size. An auto item
+				// stretches even when its content has a nonzero minimum.
+				float cs = it.cross_size_auto ? line_cross : it.outer_cross;
 				if (it.cross_max >= 0.0) {
 					cs = MIN(cs, it.cross_max);
 				}
@@ -868,6 +869,20 @@ WebFlexContainer::BoxSizing WebFlexContainer::get_box_sizing() const {
 	return (BoxSizing)theme_cache.box_sizing;
 }
 
+void WebFlexContainer::set_item_cross_size_auto(Control *p_child, bool p_auto) {
+	ERR_FAIL_NULL(p_child);
+	if (get_item_cross_size_auto(p_child) == p_auto) {
+		return;
+	}
+	p_child->set_meta(SNAME("_flex_cross_size_auto"), p_auto);
+	queue_sort();
+}
+
+bool WebFlexContainer::get_item_cross_size_auto(Control *p_child) const {
+	ERR_FAIL_NULL_V(p_child, true);
+	return p_child->get_meta(SNAME("_flex_cross_size_auto"), true);
+}
+
 /* ---------------------------- Child notifies ---------------------------- */
 
 void WebFlexContainer::add_child_notify(Node *p_child) {
@@ -1088,6 +1103,8 @@ void WebFlexContainer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_item_flex_shrink", "child"), &WebFlexContainer::get_item_flex_shrink);
 	ClassDB::bind_method(D_METHOD("set_item_flex_basis", "child", "basis"), &WebFlexContainer::set_item_flex_basis);
 	ClassDB::bind_method(D_METHOD("get_item_flex_basis", "child"), &WebFlexContainer::get_item_flex_basis);
+	ClassDB::bind_method(D_METHOD("set_item_cross_size_auto", "child", "auto"), &WebFlexContainer::set_item_cross_size_auto);
+	ClassDB::bind_method(D_METHOD("get_item_cross_size_auto", "child"), &WebFlexContainer::get_item_cross_size_auto);
 	ClassDB::bind_method(D_METHOD("set_item_order", "child", "order"), &WebFlexContainer::set_item_order);
 	ClassDB::bind_method(D_METHOD("get_item_order", "child"), &WebFlexContainer::get_item_order);
 

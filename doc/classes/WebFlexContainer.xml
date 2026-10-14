@@ -11,6 +11,17 @@
 	<tutorials>
 	</tutorials>
 	<methods>
+		<method name="set_item_cross_size_auto">
+			<return type="void" />
+			<param index="0" name="child" type="Control" />
+			<param index="1" name="auto" type="bool" />
+			<description>Sets whether stretch may resolve the child's cross size. Intrinsic content and custom minimum size do not make an auto size definite.</description>
+		</method>
+		<method name="get_item_cross_size_auto" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="child" type="Control" />
+			<description>Returns whether the child's cross size is auto. Defaults to [code]true[/code].</description>
+		</method>
 		<method name="get_align_content" qualifiers="const">
 			<return type="int" enum="WebFlexContainer.AlignContent" />
 			<description>
