@@ -33,8 +33,6 @@
 #include "core/input/input_event.h"
 #include "core/object/class_db.h"
 #include "scene/resources/font.h"
-#include "scene/resources/text_line.h"
-#include "scene/resources/text_paragraph.h"
 #include "scene/resources/style_box.h"
 #include "scene/theme/theme_db.h"
 #include "servers/rendering/rendering_server.h"
@@ -184,52 +182,250 @@ String WebList::_get_translated_item_text(int p_idx) const {
 }
 
 
-int WebList::_marker_column_width() const {
-	int marker_width = theme_cache.marker_min_width;
+int WebList::_text_baseline() const {
+	if (theme_cache.font.is_null()) {
+		return theme_cache.font_size;
+	}
+	return Math::floor((_get_line_height() - theme_cache.font->get_height(theme_cache.font_size)) * 0.5 + theme_cache.font->get_ascent(theme_cache.font_size));
+}
+
+// Blink's ListMarker symbol box (disc, circle, square): whole pixels derived
+// from the marker font's rounded ascent.
+static _FORCE_INLINE_ int _web_list_bullet_size(int p_ascent) {
+	return (p_ascent * 2 / 3 + 1) / 2;
+}
+
+bool WebList::_is_symbol_marker(int p_idx) const {
+	return list_tag == LIST_TAG_UNORDERED && items[p_idx].custom_marker_text.is_empty() &&
+			(list_style_type == LIST_STYLE_TYPE_DISC || list_style_type == LIST_STYLE_TYPE_CIRCLE || list_style_type == LIST_STYLE_TYPE_SQUARE);
+}
+
+String WebList::_inside_marker_text(int p_idx) const {
+	const String marker = _get_item_marker_text(p_idx);
+	// A counter marker is "1. ": its suffix ends in the space the text follows.
+	return marker.is_empty() || !items[p_idx].custom_marker_text.is_empty() ? marker : marker + " ";
+}
+
+WebList::MarkerBox WebList::_marker_box() const {
+	MarkerBox box;
+	const Ref<Font> font = theme_cache.marker_font.is_valid() ? theme_cache.marker_font : theme_cache.font;
+	box.font_size = theme_cache.marker_font_size > 0 ? theme_cache.marker_font_size : theme_cache.font_size;
+	if (theme_cache.marker_ascent > 0) {
+		// The host knows the browser's rounded metrics of the marker's inline box.
+		box.ascent = theme_cache.marker_ascent;
+		box.above = theme_cache.marker_above;
+		box.below = theme_cache.marker_below;
+		return box;
+	}
+	const int line_height = _get_line_height();
+	if (font.is_null() || (font == theme_cache.font && box.font_size == theme_cache.font_size)) {
+		box.ascent = font.is_valid() ? (int)Math::ceil(font->get_ascent(box.font_size)) : box.font_size;
+		box.above = _text_baseline();
+		box.below = line_height - box.above;
+		return box;
+	}
+	// An inline box of another size takes its own share of the line: the same
+	// line-height, centred on its own ascent and descent.
+	const real_t height = font->get_height(box.font_size);
+	const real_t marker_line = theme_cache.line_height > 0 ? (real_t)theme_cache.line_height : Math::ceil(height * 1.2);
+	box.ascent = (int)Math::ceil(font->get_ascent(box.font_size));
+	box.above = (int)Math::floor((marker_line - height) * 0.5 + font->get_ascent(box.font_size));
+	box.below = (int)marker_line - box.above;
+	return box;
+}
+
+real_t WebList::_inside_marker_advance(int p_idx, const MarkerBox &p_box) const {
+	if (_get_item_marker_text(p_idx).is_empty()) {
+		return 0;
+	}
+	if (_is_symbol_marker(p_idx)) {
+		// Blink: a -1px start margin, the symbol box (the bullet plus 2px) and a 1em end margin.
+		return -1 + _web_list_bullet_size(p_box.ascent) + 2 + p_box.font_size;
+	}
+	return _get_text_size(_inside_marker_text(p_idx), true).width;
+}
+
+// An outside marker is a box of its own that ends at the item's border edge (a symbol box,
+// or a counter's text with its trailing space).
+real_t WebList::_outside_marker_width(int p_idx, const MarkerBox &p_box) const {
+	if (_get_item_marker_text(p_idx).is_empty()) {
+		return 0;
+	}
+	if (_is_symbol_marker(p_idx)) {
+		return _web_list_bullet_size(p_box.ascent) + 2;
+	}
+	return _get_text_size(_inside_marker_text(p_idx), true).width;
+}
+
+void WebList::_free_layout(Layout &r_layout) const {
+	for (ItemBox &item : r_layout.items) {
+		for (LineBox &line : item.lines) {
+			if (line.rid.is_valid()) {
+				TS->free_rid(line.rid);
+			}
+		}
+		if (item.text_rid.is_valid()) {
+			TS->free_rid(item.text_rid);
+		}
+	}
+	r_layout.items.clear();
+	r_layout.valid = false;
+}
+
+void WebList::_invalidate_layout() {
+	_free_layout(layout_cache[0]);
+	_free_layout(layout_cache[1]);
+}
+
+void WebList::_content_changed() {
+	_invalidate_layout();
+	update_minimum_size();
+	queue_redraw();
+}
+
+// One pass shapes every item at `p_width`. An outside marker hangs in the
+// list's start padding, beside the first line (it only raises that line's
+// baseline when it reaches higher than the text). An inside marker is
+// the first inline box of the first line (CSS `list-style-position: inside`):
+// that line starts after it, the following lines at the item's start, and a
+// marker taller than the text grows the first line box around their shared
+// baseline.
+void WebList::_build_layout(Layout &r_layout, real_t p_width) const {
+	_free_layout(r_layout);
+	r_layout.valid = true;
+	r_layout.width = p_width;
+
+	const Ref<StyleBox> box = theme_cache.normal_style;
+	const bool rtl = is_layout_rtl();
+	const real_t left = (box.is_valid() ? box->get_margin(SIDE_LEFT) : 0) + (rtl ? theme_cache.padding_inline_end : theme_cache.padding_inline_start);
+	const real_t top = (box.is_valid() ? box->get_margin(SIDE_TOP) : 0) + (theme_cache.margin_block_start < 0 ? theme_cache.font_size : theme_cache.margin_block_start) + theme_cache.padding_block_start;
+	const real_t right = (box.is_valid() ? box->get_margin(SIDE_RIGHT) : 0) + (rtl ? theme_cache.padding_inline_start : theme_cache.padding_inline_end);
+	r_layout.left = left;
+	r_layout.top = top;
+	// `li { padding-left }` moves the item's text (and an inside marker) off the list's content edge.
+	const real_t content_width = MAX((real_t)0.0, p_width - left - right);
+	r_layout.item_pad = MAX((real_t)0.0, li_padding_inline_start + content_width * li_padding_inline_start_percent / 100);
+	r_layout.item_width = MAX((real_t)0.0, content_width - r_layout.item_pad);
+
+	const bool inside = list_style_position == LIST_STYLE_POSITION_INSIDE;
+	const int line_height = _get_line_height();
+	const int text_above = _text_baseline();
+	const int text_below = line_height - text_above;
+	const MarkerBox marker_box = _marker_box();
+	const BitField<TextServer::LineBreakFlag> break_flags = TextServer::BREAK_MANDATORY | TextServer::BREAK_WORD_BOUND |
+			TextServer::BREAK_TRIM_START_EDGE_SPACES | TextServer::BREAK_TRIM_END_EDGE_SPACES;
+	const bool wrap = autowrap && r_layout.item_width > 0;
+
+	real_t y = top;
+	r_layout.items.resize(items.size());
 	for (int i = 0; i < items.size(); i++) {
-		marker_width = MAX(marker_width, (int)Math::ceil(_get_text_size(_get_item_marker_text(i), true).width));
+		ItemBox &item = r_layout.items.write[i];
+		item.top = y;
+		const bool has_marker = !_get_item_marker_text(i).is_empty();
+		const bool inline_marker = inside && has_marker;
+		item.marker_advance = inline_marker ? _inside_marker_advance(i, marker_box) : 0;
+
+		Vector<Vector2i> ranges;
+		if (theme_cache.font.is_valid()) {
+			const String text = _get_translated_item_text(i);
+			item.text_rid = TS->create_shaped_text();
+			TS->shaped_text_add_string(item.text_rid, text, theme_cache.font->get_rids(), theme_cache.font_size, theme_cache.font->get_opentype_features(), language);
+			for (int s = 0; s < TextServer::SPACING_MAX; s++) {
+				TS->shaped_text_set_spacing(item.text_rid, TextServer::SpacingType(s), theme_cache.font->get_spacing(TextServer::SpacingType(s)));
+			}
+			if (text.is_empty()) {
+				// One empty line box.
+			} else if (!wrap) {
+				ranges.push_back(Vector2i(0, text.length()));
+			} else if (item.marker_advance > 0) {
+				const PackedInt32Array first = TS->shaped_text_get_line_breaks(item.text_rid, MAX((real_t)1.0, r_layout.item_width - item.marker_advance), 0, break_flags);
+				if (first.size() >= 2) {
+					ranges.push_back(Vector2i(first[0], first[1]));
+				}
+				if (first.size() >= 4) {
+					const PackedInt32Array rest = TS->shaped_text_get_line_breaks(item.text_rid, r_layout.item_width, first[2], break_flags);
+					for (int b = 0; b + 1 < rest.size(); b += 2) {
+						ranges.push_back(Vector2i(rest[b], rest[b + 1]));
+					}
+				}
+			} else {
+				const PackedInt32Array breaks = TS->shaped_text_get_line_breaks(item.text_rid, r_layout.item_width, 0, break_flags);
+				for (int b = 0; b + 1 < breaks.size(); b += 2) {
+					ranges.push_back(Vector2i(breaks[b], breaks[b + 1]));
+				}
+			}
+		}
+		if (ranges.is_empty()) {
+			ranges.push_back(Vector2i(0, 0));
+		}
+
+		real_t line_top = 0;
+		for (int l = 0; l < ranges.size(); l++) {
+			LineBox line;
+			line.start = ranges[l].x;
+			line.end = ranges[l].y;
+			if (item.text_rid.is_valid() && line.end > line.start) {
+				line.rid = TS->shaped_text_substr(item.text_rid, line.start, line.end - line.start);
+				line.width = TS->shaped_text_get_width(line.rid);
+			}
+			int above = text_above;
+			int below = text_below;
+			if (l == 0 && inline_marker) {
+				above = MAX(above, marker_box.above);
+				below = MAX(below, marker_box.below);
+				line.x = item.marker_advance;
+			} else if (l == 0 && has_marker) {
+				// An outside marker keeps to the first line's baseline: one that reaches higher than the text
+				// pushes the line down, while what it hangs below the baseline does not grow the line.
+				above = MAX(above, marker_box.above);
+			}
+			line.top = line_top;
+			line.baseline = above;
+			line.height = above + below;
+			line_top += line.height;
+			item.lines.push_back(line);
+		}
+		item.height = line_top;
+		y += item.height + theme_cache.item_spacing;
 	}
-	return marker_width;
+	r_layout.content_bottom = items.is_empty() ? top : y - theme_cache.item_spacing;
 }
 
-real_t WebList::_item_text_available(real_t p_item_width) const {
-	const bool outside = list_style_position == LIST_STYLE_POSITION_OUTSIDE;
-	return MAX((real_t)0.0, p_item_width - (outside ? 0 : _marker_column_width() + theme_cache.marker_gap));
-}
-
-Ref<TextParagraph> WebList::_shape_item_paragraph(int p_idx, real_t p_available) const {
-	Ref<TextParagraph> paragraph;
-	paragraph.instantiate();
-	paragraph->add_string(_get_translated_item_text(p_idx), theme_cache.font, theme_cache.font_size);
-	paragraph->set_break_flags(TextServer::BREAK_MANDATORY | TextServer::BREAK_WORD_BOUND |
-			TextServer::BREAK_TRIM_START_EDGE_SPACES | TextServer::BREAK_TRIM_END_EDGE_SPACES);
-	paragraph->set_width(p_available > 0 ? p_available : -1);
-	return paragraph;
-}
-
-int WebList::_item_line_count(int p_idx, real_t p_available) const {
-	if (!autowrap || theme_cache.font.is_null() || p_available <= 0) {
-		return 1;
+const WebList::Layout &WebList::_get_layout(real_t p_width) const {
+	// Slot 0 follows the control's own width; slot 1 answers a measurement at
+	// another width without discarding the one the next draw needs.
+	Layout &layout = layout_cache[Math::is_equal_approx(p_width, (real_t)get_size().width) ? 0 : 1];
+	if (!layout.valid || !Math::is_equal_approx(layout.width, p_width)) {
+		_build_layout(layout, p_width);
 	}
-	return MAX(1, _shape_item_paragraph(p_idx, p_available)->get_line_count());
+	return layout;
+}
+
+// Where a line's text starts (x) and where its baseline sits (y).
+Point2 WebList::_line_pen(const Layout &p_layout, const ItemBox &p_item, int p_line, bool p_rtl) const {
+	const LineBox &line = p_item.lines[p_line];
+	const real_t content = line.x + line.width;
+	real_t x = p_layout.left + (p_rtl ? 0 : p_layout.item_pad);
+	if (p_rtl) {
+		// The line hugs the inline end; an inside marker follows the text there.
+		x += p_layout.item_width - content;
+	} else {
+		if (text_alignment == HORIZONTAL_ALIGNMENT_CENTER) {
+			x += Math::floor((p_layout.item_width - content) * 0.5);
+		} else if (text_alignment == HORIZONTAL_ALIGNMENT_RIGHT) {
+			x += p_layout.item_width - content;
+		}
+		x += line.x;
+	}
+	return Point2(x, p_item.top + line.top + line.baseline);
 }
 
 Rect2 WebList::_get_item_rect_for_width(int p_idx, real_t p_width) const {
 	ERR_FAIL_INDEX_V(p_idx, items.size(), Rect2());
+	const Layout &layout = _get_layout(p_width);
+	ERR_FAIL_INDEX_V(p_idx, layout.items.size(), Rect2());
 	const Ref<StyleBox> box = theme_cache.normal_style;
-	const Size2 min = box.is_valid() ? box->get_minimum_size() : Size2();
-	const bool rtl = is_layout_rtl();
-	const float left = (box.is_valid() ? box->get_margin(SIDE_LEFT) : 0) + (rtl ? theme_cache.padding_inline_end : theme_cache.padding_inline_start);
-	const float top = (box.is_valid() ? box->get_margin(SIDE_TOP) : 0) + (theme_cache.margin_block_start < 0 ? theme_cache.font_size : theme_cache.margin_block_start) + theme_cache.padding_block_start;
-	const float right = (box.is_valid() ? box->get_margin(SIDE_RIGHT) : 0) + (rtl ? theme_cache.padding_inline_start : theme_cache.padding_inline_end);
-	const int line_height = _get_line_height();
-	const float width = MAX(0.0, p_width - left - right);
-	const real_t available = _item_text_available(width);
-	float y = top;
-	for (int i = 0; i < p_idx; i++) {
-		y += _item_line_count(i, available) * line_height + theme_cache.item_spacing;
-	}
-	return Rect2(left, y, width, _item_line_count(p_idx, available) * line_height + min.height);
+	return Rect2(layout.left, layout.items[p_idx].top, layout.item_width + layout.item_pad, layout.items[p_idx].height + (box.is_valid() ? box->get_minimum_size().height : 0));
 }
 
 Rect2 WebList::_get_item_rect(int p_idx) const {
@@ -237,13 +433,8 @@ Rect2 WebList::_get_item_rect(int p_idx) const {
 }
 
 real_t WebList::_content_height_for_width(real_t p_width) const {
-	real_t height = 0;
-	if (!items.is_empty()) {
-		const Rect2 last = _get_item_rect_for_width(items.size() - 1, p_width);
-		const Ref<StyleBox> box = theme_cache.normal_style;
-		const real_t top = (box.is_valid() ? box->get_margin(SIDE_TOP) : 0) + (theme_cache.margin_block_start < 0 ? theme_cache.font_size : theme_cache.margin_block_start) + theme_cache.padding_block_start;
-		height = last.position.y + last.size.y - (box.is_valid() ? box->get_minimum_size().height : 0) - top;
-	}
+	const Layout &layout = _get_layout(p_width);
+	real_t height = layout.content_bottom - layout.top;
 	height += (theme_cache.margin_block_start < 0 ? theme_cache.font_size : theme_cache.margin_block_start) +
 			(theme_cache.margin_block_end < 0 ? theme_cache.font_size : theme_cache.margin_block_end) +
 			theme_cache.padding_block_start + theme_cache.padding_block_end;
@@ -258,15 +449,18 @@ real_t WebList::get_content_height_for_width(real_t p_width) const {
 }
 
 real_t WebList::get_max_content_width() const {
+	const bool inside = list_style_position == LIST_STYLE_POSITION_INSIDE;
+	const MarkerBox marker_box = _marker_box();
 	real_t width = 0;
 	for (int i = 0; i < items.size(); i++) {
-		width = MAX(width, _get_text_size(_get_translated_item_text(i)).width);
+		real_t item_width = _get_text_size(_get_translated_item_text(i)).width + li_padding_inline_start;
+		if (inside) {
+			item_width += _inside_marker_advance(i, marker_box);
+		}
+		width = MAX(width, item_width);
 	}
-	if (list_style_position == LIST_STYLE_POSITION_INSIDE) {
-		width += _marker_column_width() + theme_cache.marker_gap;
-	} else {
-		width += theme_cache.padding_inline_start + theme_cache.padding_inline_end;
-	}
+	// Outside markers occupy the list's inline-start padding, not a text column.
+	width += theme_cache.padding_inline_start + theme_cache.padding_inline_end;
 	if (theme_cache.normal_style.is_valid()) {
 		width += theme_cache.normal_style->get_minimum_size().width;
 	}
@@ -278,8 +472,7 @@ void WebList::set_autowrap(bool p_autowrap) {
 		return;
 	}
 	autowrap = p_autowrap;
-	update_minimum_size();
-	queue_redraw();
+	_content_changed();
 }
 
 bool WebList::is_autowrap() const {
@@ -460,6 +653,54 @@ void WebList::_draw_decorations(RID p_ci, const RID &p_line, real_t p_x, real_t 
 	}
 }
 
+void WebList::set_outline_over_fill(bool p_enabled) {
+	if (outline_over_fill == p_enabled) {
+		return;
+	}
+	outline_over_fill = p_enabled;
+	queue_redraw();
+}
+
+bool WebList::is_outline_over_fill() const {
+	return outline_over_fill;
+}
+
+void WebList::set_text_background_color(const Color &p_color) {
+	if (text_background_color == p_color) {
+		return;
+	}
+	text_background_color = p_color;
+	queue_redraw();
+}
+
+void WebList::set_li_padding_inline_start(real_t p_padding) {
+	if (Math::is_equal_approx(li_padding_inline_start, p_padding)) {
+		return;
+	}
+	li_padding_inline_start = p_padding;
+	_content_changed();
+}
+
+real_t WebList::get_li_padding_inline_start() const {
+	return li_padding_inline_start;
+}
+
+void WebList::set_li_padding_inline_start_percent(real_t p_percent) {
+	if (Math::is_equal_approx(li_padding_inline_start_percent, p_percent)) {
+		return;
+	}
+	li_padding_inline_start_percent = p_percent;
+	_content_changed();
+}
+
+real_t WebList::get_li_padding_inline_start_percent() const {
+	return li_padding_inline_start_percent;
+}
+
+Color WebList::get_text_background_color() const {
+	return text_background_color;
+}
+
 void WebList::set_decoration_lines(int p_lines) {
 	decoration_lines = p_lines;
 	queue_redraw();
@@ -501,38 +742,13 @@ void WebList::_update_hovered_item(const Point2 &p_position) {
 }
 
 Size2 WebList::get_minimum_size() const {
+	const real_t height = _content_height_for_width(get_size().width);
 	if (autowrap) {
 		// Like an autowrapping Label: no width of its own (the text wraps at
 		// whatever width the list is given), as tall as that width makes it.
-		return Size2(0, _content_height_for_width(get_size().width));
+		return Size2(0, height);
 	}
-	Size2 content;
-	int marker_width = theme_cache.marker_min_width;
-	for (int i = 0; i < items.size(); i++) {
-		marker_width = MAX(marker_width, (int)Math::ceil(_get_text_size(_get_item_marker_text(i), true).width));
-		content.width = MAX(content.width, _get_text_size(_get_translated_item_text(i)).width);
-	}
-
-	if (list_style_position == LIST_STYLE_POSITION_INSIDE) {
-		content.width += marker_width + theme_cache.marker_gap;
-	} else {
-		// Outside markers occupy the list's inline-start padding, not an extra text column.
-		content.width += theme_cache.padding_inline_start + theme_cache.padding_inline_end;
-	}
-
-	const int line_height = _get_line_height();
-	if (!items.is_empty()) {
-		content.height = items.size() * line_height + MAX(0, items.size() - 1) * theme_cache.item_spacing;
-	}
-	content.height += (theme_cache.margin_block_start < 0 ? theme_cache.font_size : theme_cache.margin_block_start) +
-			(theme_cache.margin_block_end < 0 ? theme_cache.font_size : theme_cache.margin_block_end) +
-			theme_cache.padding_block_start + theme_cache.padding_block_end;
-
-	if (theme_cache.normal_style.is_valid()) {
-		content += theme_cache.normal_style->get_minimum_size();
-	}
-
-	return content;
+	return Size2(get_max_content_width(), height);
 }
 
 void WebList::gui_input(const Ref<InputEvent> &p_event) {
@@ -557,111 +773,114 @@ void WebList::_notification(int p_what) {
 				theme_cache.focus_style->draw(ci, Rect2(Point2(), size));
 			}
 
-			int marker_width = theme_cache.marker_min_width;
-			for (int i = 0; i < items.size(); i++) {
-				marker_width = MAX(marker_width, (int)Math::ceil(_get_text_size(_get_item_marker_text(i), true).width));
-			}
-
+			const Layout &layout = _get_layout(size.width);
 			const bool rtl = is_layout_rtl();
-			const int line_height = _get_line_height();
-			const int font_size = theme_cache.font_size;
+			const bool outside = list_style_position == LIST_STYLE_POSITION_OUTSIDE;
 			const Ref<Font> marker_font = theme_cache.marker_font.is_valid() ? theme_cache.marker_font : theme_cache.font;
-			const int marker_font_size = theme_cache.marker_font_size > 0 ? theme_cache.marker_font_size : font_size;
-			const float baseline = Math::floor((line_height - (theme_cache.font.is_valid() ? theme_cache.font->get_height(font_size) : line_height)) * 0.5 + (theme_cache.font.is_valid() ? theme_cache.font->get_ascent(font_size) : font_size));
-			const float marker_baseline = marker_font == theme_cache.font && marker_font_size == font_size ? baseline : Math::floor((line_height - (marker_font.is_valid() ? marker_font->get_height(marker_font_size) : line_height)) * 0.5 + (marker_font.is_valid() ? marker_font->get_ascent(marker_font_size) : marker_font_size));
+			const MarkerBox marker_box = _marker_box();
+			const int marker_font_size = marker_box.font_size;
+			const real_t min_height = theme_cache.normal_style.is_valid() ? theme_cache.normal_style->get_minimum_size().height : 0;
+			const Color outline_color = theme_cache.font_outline_color * opacity_modulate;
 
-			for (int i = 0; i < items.size(); i++) {
-				Rect2 item_rect = _get_item_rect(i);
+			for (int i = 0; i < items.size() && i < layout.items.size(); i++) {
+				const ItemBox &item = layout.items[i];
+				const Rect2 item_rect(layout.left, item.top, layout.item_width + layout.item_pad, item.height + min_height);
 				Ref<StyleBox> item_style = i == hovered_item && theme_cache.item_hover_style.is_valid() ? theme_cache.item_hover_style : theme_cache.item_normal_style;
 				if (item_style.is_valid()) {
 					item_style->draw(ci, item_rect);
 				}
 
 				const String marker = _get_item_marker_text(i);
-				const String text = _get_translated_item_text(i);
 				const Color text_color = (i == hovered_item ? theme_cache.font_hover_color : theme_cache.font_color) * opacity_modulate;
 				const Color marker_color = (i == hovered_item ? theme_cache.marker_hover_color : theme_cache.marker_color) * opacity_modulate;
 				Ref<StyleBox> marker_style = i == hovered_item && theme_cache.marker_hover_style.is_valid() ? theme_cache.marker_hover_style : theme_cache.marker_normal_style;
 
-				const bool outside = list_style_position == LIST_STYLE_POSITION_OUTSIDE;
-				const float marker_gap = outside ? MAX(4.0f, marker_font_size * 0.28f) : theme_cache.marker_gap;
-				float marker_x = outside ? item_rect.position.x - marker_gap - marker_width : item_rect.position.x;
-				float text_x = outside ? item_rect.position.x : item_rect.position.x + marker_width + theme_cache.marker_gap;
-				if (rtl) {
-					const float inline_end = item_rect.position.x + item_rect.size.x;
-					marker_x = outside ? inline_end + marker_gap : inline_end - marker_width;
-					text_x = outside ? inline_end - _get_text_size(text).width : marker_x - theme_cache.marker_gap - _get_text_size(text).width;
-				}
+				for (int l = 0; l < item.lines.size(); l++) {
+					const LineBox &line = item.lines[l];
+					const Point2 pen = _line_pen(layout, item, l, rtl);
 
-				if (marker_style.is_valid() && !marker.is_empty()) {
-					marker_style->draw(ci, Rect2(marker_x, item_rect.position.y, marker_width, item_rect.size.y));
-				}
+					if (l == 0 && !marker.is_empty()) {
+						const bool symbol = _is_symbol_marker(i);
+						const int ascent = marker_box.ascent;
+						const int bullet = _web_list_bullet_size(ascent);
+						// The marker's own box and where it paints: inside it is the first inline box of the
+						// line (before the text, or after it when the line runs right to left); outside it ends at
+						// the item's border edge, and a symbol sits a baseline-derived distance away from it.
+						real_t box_x;
+						real_t box_width;
+						real_t bullet_x = 0;
+						if (outside) {
+							const real_t edge = rtl ? item_rect.position.x + item_rect.size.x : item_rect.position.x;
+							box_width = _outside_marker_width(i, marker_box);
+							if (symbol) {
+								// Blink: a margin of -(offset + 7 + 1) on a box that holds the symbol 1px in.
+								const int offset = ascent * 2 / 3;
+								bullet_x = rtl ? edge + offset + 7 - bullet : edge - offset - 7;
+								box_x = bullet_x - 1;
+							} else {
+								box_x = rtl ? edge : edge - box_width;
+							}
+						} else {
+							box_x = rtl ? pen.x + line.width : pen.x - line.x;
+							box_width = item.marker_advance;
+							bullet_x = rtl ? box_x + item.marker_advance - bullet : box_x;
+						}
+						if (marker_style.is_valid()) {
+							marker_style->draw(ci, Rect2(box_x, item.top, box_width, line.height));
+						}
+						if (symbol) {
+							// Blink (ListMarker::RelativeSymbolMarkerRect): the symbol is a third of the ascent up.
+							const real_t bullet_y = pen.y - ascent + 3 * (ascent - ascent * 2 / 3) / 2;
+							const Point2 center(bullet_x + bullet * 0.5, bullet_y + bullet * 0.5);
+							if (list_style_type == LIST_STYLE_TYPE_DISC) {
+								draw_circle(center, bullet * 0.5, marker_color, true, -1.0f, true);
+							} else if (list_style_type == LIST_STYLE_TYPE_CIRCLE) {
+								draw_circle(center, bullet * 0.5, marker_color, false, 1.0f, true);
+							} else {
+								draw_rect(Rect2(bullet_x, bullet_y, bullet, bullet), marker_color);
+							}
+						} else if (marker_font.is_valid()) {
+							const String marker_text = _inside_marker_text(i);
+							const Point2 marker_pen(box_x, pen.y);
+							if (theme_cache.outline_size > 0 && !outline_over_fill) {
+								marker_font->draw_string_outline(ci, marker_pen, marker_text, HORIZONTAL_ALIGNMENT_LEFT, -1, marker_font_size, theme_cache.outline_size, outline_color);
+							}
+							marker_font->draw_string(ci, marker_pen, marker_text, HORIZONTAL_ALIGNMENT_LEFT, -1, marker_font_size, marker_color);
+							if (theme_cache.outline_size > 0 && outline_over_fill) {
+								marker_font->draw_string_outline(ci, marker_pen, marker_text, HORIZONTAL_ALIGNMENT_LEFT, -1, marker_font_size, theme_cache.outline_size, outline_color);
+							}
+						}
+					}
 
-				const bool native_bullet = outside && list_tag == LIST_TAG_UNORDERED && items[i].custom_marker_text.is_empty() &&
-						(list_style_type == LIST_STYLE_TYPE_DISC || list_style_type == LIST_STYLE_TYPE_CIRCLE || list_style_type == LIST_STYLE_TYPE_SQUARE);
-				if (native_bullet) {
-					// Chromium paints the three unordered markers at the same size and
-					// position. Font glyphs (especially U+2022) do not share those metrics.
-					const float diameter = MAX(2.0f, Math::round(marker_font_size * 0.36f));
-					const float radius = (diameter - 1.0f) * 0.5f;
-					const float inline_start = rtl ? item_rect.position.x + item_rect.size.x : item_rect.position.x;
-					const float marker_offset = 6.0f + marker_font_size * 0.535f;
-					const Point2 center(inline_start + (rtl ? 1.0f : -1.0f) * marker_offset,
-							item_rect.position.y + line_height * 0.5f + marker_font_size * 0.0625f);
-					if (list_style_type == LIST_STYLE_TYPE_DISC) {
-						draw_circle(center, radius, marker_color, true, -1.0f, true);
-					} else if (list_style_type == LIST_STYLE_TYPE_CIRCLE) {
-						const float stroke = MAX(1.0f, marker_font_size * 0.03f);
-						draw_circle(center, radius - stroke * 0.5f, marker_color, false, stroke, true);
-					} else {
-						draw_rect(Rect2(center - Vector2(radius, radius), Size2(diameter, diameter)), marker_color);
+					if (!line.rid.is_valid()) {
+						continue;
 					}
-				} else if (marker_font.is_valid() && !marker.is_empty()) {
-					marker_font->draw_string(ci, Point2(marker_x, item_rect.position.y + marker_baseline), marker, rtl ? HORIZONTAL_ALIGNMENT_LEFT : HORIZONTAL_ALIGNMENT_RIGHT, marker_width, marker_font_size, marker_color);
-				}
-				if (theme_cache.font.is_valid()) {
-					const float available = MAX(0.0, item_rect.size.x - (outside ? 0 : marker_width + theme_cache.marker_gap));
-					if (items[i].selection_to > items[i].selection_from) {
-						Ref<TextLine> line = _shape_item_text(i);
-						Rect2 rect = get_item_text_rect(i);
-						for (const Vector2 &range : TS->shaped_text_get_selection(line->get_rid(), items[i].selection_from, items[i].selection_to)) {
-							draw_rect(Rect2(rect.position + Point2(range.x, 0), Size2(range.y - range.x, rect.size.y)).intersection(Rect2(Point2(text_x, item_rect.position.y), Size2(available, rect.size.y))), get_theme_color(SNAME("selection_color"), SNAME("TextEdit")) * opacity_modulate);
+					// Without wrapping a line is cut at the item's inline end.
+					const real_t clip_r = autowrap ? (real_t)-1 : item_rect.position.x + item_rect.size.x;
+					const real_t line_ascent = TS->shaped_text_get_ascent(line.rid);
+					if (text_background_color.a > 0 && line.width > 0) {
+						// An inline box's background covers its font's content area.
+						const real_t ascent = theme_cache.text_ascent > 0 ? (real_t)theme_cache.text_ascent : line_ascent;
+						const real_t descent = theme_cache.text_descent > 0 ? (real_t)theme_cache.text_descent : (real_t)TS->shaped_text_get_descent(line.rid);
+						draw_rect(Rect2(pen.x, pen.y - ascent, line.width, ascent + descent), text_background_color * opacity_modulate);
+					}
+					const int selection_from = MAX(items[i].selection_from, line.start);
+					const int selection_to = MIN(items[i].selection_to, line.end);
+					if (selection_to > selection_from) {
+						const real_t line_size = TS->shaped_text_get_size(line.rid).y;
+						for (const Vector2 &range : TS->shaped_text_get_selection(line.rid, selection_from, selection_to)) {
+							draw_rect(Rect2(pen.x + range.x, pen.y - line_ascent, range.y - range.x, line_size), get_theme_color(SNAME("selection_color"), SNAME("TextEdit")) * opacity_modulate);
 						}
 					}
-					if (autowrap && available > 0) {
-						// One line box per wrapped line, each aligned on its own.
-						Ref<TextParagraph> paragraph = _shape_item_paragraph(i, available);
-						for (int l = 0; l < paragraph->get_line_count(); l++) {
-							const RID line_rid = paragraph->get_line_rid(l);
-							const real_t line_width = paragraph->get_line_width(l);
-							real_t lx = rtl ? text_x + _get_text_size(text).width - line_width : text_x;
-							if (!rtl && text_alignment == HORIZONTAL_ALIGNMENT_CENTER) {
-								lx += Math::floor((available - line_width) * 0.5);
-							} else if (!rtl && text_alignment == HORIZONTAL_ALIGNMENT_RIGHT) {
-								lx += available - line_width;
-							}
-							const Point2 pen(lx, item_rect.position.y + baseline + l * line_height);
-							if (theme_cache.outline_size > 0) {
-								TS->shaped_text_draw_outline(line_rid, ci, pen, -1, -1, theme_cache.outline_size, theme_cache.font_outline_color * opacity_modulate);
-							}
-							TS->shaped_text_draw(line_rid, ci, pen, -1, -1, text_color);
-							_draw_decorations(ci, line_rid, lx, pen.y, line_width, text_color);
-						}
-					} else {
-						if (theme_cache.outline_size > 0) {
-							theme_cache.font->draw_string_outline(ci, Point2(text_x, item_rect.position.y + baseline), text, text_alignment, available, font_size, theme_cache.outline_size, theme_cache.font_outline_color * opacity_modulate);
-						}
-						theme_cache.font->draw_string(ci, Point2(text_x, item_rect.position.y + baseline), text, text_alignment, available, font_size, text_color);
-						Ref<TextLine> single = _shape_item_text(i);
-						const real_t single_width = MIN((real_t)single->get_line_width(), available);
-						real_t sx = text_x;
-						if (text_alignment == HORIZONTAL_ALIGNMENT_CENTER) {
-							sx += Math::floor((available - single_width) * 0.5);
-						} else if (text_alignment == HORIZONTAL_ALIGNMENT_RIGHT) {
-							sx += available - single_width;
-						}
-						_draw_decorations(ci, single->get_rid(), sx, item_rect.position.y + baseline, single_width, text_color);
+					if (theme_cache.outline_size > 0 && !outline_over_fill) {
+						TS->shaped_text_draw_outline(line.rid, ci, pen, -1, clip_r, theme_cache.outline_size, outline_color);
 					}
+					TS->shaped_text_draw(line.rid, ci, pen, -1, clip_r, text_color);
+					if (theme_cache.outline_size > 0 && outline_over_fill) {
+						// `-webkit-text-stroke` paints over the fill (paint-order: normal).
+						TS->shaped_text_draw_outline(line.rid, ci, pen, -1, clip_r, theme_cache.outline_size, outline_color);
+					}
+					_draw_decorations(ci, line.rid, pen.x, pen.y, line.width, text_color);
 				}
 			}
 		} break;
@@ -682,8 +901,7 @@ void WebList::_notification(int p_what) {
 		case NOTIFICATION_THEME_CHANGED:
 		case NOTIFICATION_TRANSLATION_CHANGED:
 		case NOTIFICATION_LAYOUT_DIRECTION_CHANGED: {
-			update_minimum_size();
-			queue_redraw();
+			_content_changed();
 		} break;
 	}
 }
@@ -702,8 +920,7 @@ void WebList::set_list_tag(ListTag p_tag) {
 	} else if (list_tag == LIST_TAG_UNORDERED && list_style_type == LIST_STYLE_TYPE_DECIMAL) {
 		list_style_type = LIST_STYLE_TYPE_DISC;
 	}
-	update_minimum_size();
-	queue_redraw();
+	_content_changed();
 }
 
 WebList::ListTag WebList::get_list_tag() const {
@@ -735,8 +952,7 @@ void WebList::set_ordered_type(OrderedType p_type) {
 			list_style_type = LIST_STYLE_TYPE_UPPER_ROMAN;
 			break;
 	}
-	update_minimum_size();
-	queue_redraw();
+	_content_changed();
 }
 
 WebList::OrderedType WebList::get_ordered_type() const {
@@ -748,8 +964,7 @@ void WebList::set_start(int p_start) {
 		return;
 	}
 	start = p_start;
-	update_minimum_size();
-	queue_redraw();
+	_content_changed();
 }
 
 int WebList::get_start() const {
@@ -761,8 +976,7 @@ void WebList::set_reversed(bool p_reversed) {
 		return;
 	}
 	reversed = p_reversed;
-	update_minimum_size();
-	queue_redraw();
+	_content_changed();
 }
 
 bool WebList::is_reversed() const {
@@ -774,8 +988,7 @@ void WebList::set_list_style_type(ListStyleType p_type) {
 		return;
 	}
 	list_style_type = p_type;
-	update_minimum_size();
-	queue_redraw();
+	_content_changed();
 }
 
 WebList::ListStyleType WebList::get_list_style_type() const {
@@ -787,8 +1000,7 @@ void WebList::set_list_style_position(ListStylePosition p_position) {
 		return;
 	}
 	list_style_position = p_position;
-	update_minimum_size();
-	queue_redraw();
+	_content_changed();
 }
 
 WebList::ListStylePosition WebList::get_list_style_position() const {
@@ -800,8 +1012,7 @@ void WebList::set_box_sizing(BoxSizing p_box_sizing) {
 		return;
 	}
 	box_sizing = p_box_sizing;
-	update_minimum_size();
-	queue_redraw();
+	_content_changed();
 }
 
 WebList::BoxSizing WebList::get_box_sizing() const {
@@ -834,7 +1045,7 @@ void WebList::set_text_direction(TextDirection p_text_direction) {
 		return;
 	}
 	text_direction = p_text_direction;
-	queue_redraw();
+	_content_changed();
 }
 
 Control::TextDirection WebList::get_text_direction() const {
@@ -846,7 +1057,7 @@ void WebList::set_language(const String &p_language) {
 		return;
 	}
 	language = p_language;
-	queue_redraw();
+	_content_changed();
 }
 
 String WebList::get_language() const {
@@ -858,8 +1069,7 @@ void WebList::add_item(const String &p_text) {
 	item.text = p_text;
 	items.push_back(item);
 	notify_property_list_changed();
-	update_minimum_size();
-	queue_redraw();
+	_content_changed();
 }
 
 void WebList::set_item_count(int p_count) {
@@ -869,8 +1079,7 @@ void WebList::set_item_count(int p_count) {
 	}
 	items.resize(p_count);
 	notify_property_list_changed();
-	update_minimum_size();
-	queue_redraw();
+	_content_changed();
 }
 
 int WebList::get_item_count() const {
@@ -884,16 +1093,14 @@ void WebList::remove_item(int p_idx) {
 		hovered_item = -1;
 	}
 	notify_property_list_changed();
-	update_minimum_size();
-	queue_redraw();
+	_content_changed();
 }
 
 void WebList::clear() {
 	items.clear();
 	hovered_item = -1;
 	notify_property_list_changed();
-	update_minimum_size();
-	queue_redraw();
+	_content_changed();
 }
 
 void WebList::set_item_text(int p_idx, const String &p_text) {
@@ -903,8 +1110,7 @@ void WebList::set_item_text(int p_idx, const String &p_text) {
 	}
 	items.write[p_idx].text = p_text;
 	items.write[p_idx].selection_from = items.write[p_idx].selection_to = 0;
-	update_minimum_size();
-	queue_redraw();
+	_content_changed();
 }
 
 String WebList::get_item_text(int p_idx) const {
@@ -915,8 +1121,7 @@ String WebList::get_item_text(int p_idx) const {
 void WebList::set_item_value(int p_idx, int p_value) {
 	ERR_FAIL_INDEX(p_idx, items.size());
 	items.write[p_idx].value = p_value;
-	update_minimum_size();
-	queue_redraw();
+	_content_changed();
 }
 
 int WebList::get_item_value(int p_idx) const {
@@ -927,8 +1132,7 @@ int WebList::get_item_value(int p_idx) const {
 void WebList::set_item_value_enabled(int p_idx, bool p_enabled) {
 	ERR_FAIL_INDEX(p_idx, items.size());
 	items.write[p_idx].value_enabled = p_enabled;
-	update_minimum_size();
-	queue_redraw();
+	_content_changed();
 }
 
 bool WebList::is_item_value_enabled(int p_idx) const {
@@ -939,8 +1143,7 @@ bool WebList::is_item_value_enabled(int p_idx) const {
 void WebList::set_item_custom_marker_text(int p_idx, const String &p_marker) {
 	ERR_FAIL_INDEX(p_idx, items.size());
 	items.write[p_idx].custom_marker_text = p_marker;
-	update_minimum_size();
-	queue_redraw();
+	_content_changed();
 }
 
 String WebList::get_item_custom_marker_text(int p_idx) const {
@@ -974,8 +1177,7 @@ void WebList::set_item_auto_translate_mode(int p_idx, AutoTranslateMode p_mode) 
 		return;
 	}
 	items.write[p_idx].auto_translate_mode = p_mode;
-	update_minimum_size();
-	queue_redraw();
+	_content_changed();
 }
 
 Node::AutoTranslateMode WebList::get_item_auto_translate_mode(int p_idx) const {
@@ -987,47 +1189,80 @@ Rect2 WebList::get_item_rect(int p_idx) const {
 	return _get_item_rect(p_idx);
 }
 
-Ref<TextLine> WebList::_shape_item_text(int p_idx) const {
-	Ref<TextLine> line = memnew(TextLine(_get_translated_item_text(p_idx), theme_cache.font, theme_cache.font_size));
-	return line;
-}
-
+// The box around every line of an item's text (the marker is not part of it).
 Rect2 WebList::get_item_text_rect(int p_idx) const {
 	ERR_FAIL_INDEX_V(p_idx, items.size(), Rect2());
-	if (theme_cache.font.is_null()) { return Rect2(); }
-	Rect2 rect = _get_item_rect(p_idx);
-	int marker_width = theme_cache.marker_min_width;
-	for (int i = 0; i < items.size(); i++) {
-		marker_width = MAX(marker_width, (int)Math::ceil(_get_text_size(_get_item_marker_text(i), true).width));
+	if (theme_cache.font.is_null()) {
+		return Rect2();
 	}
-	bool outside = list_style_position == LIST_STYLE_POSITION_OUTSIDE;
-	float available = MAX(0.0f, rect.size.x - (outside ? 0 : marker_width + theme_cache.marker_gap));
-	Ref<TextLine> line = _shape_item_text(p_idx);
-	float width = line->get_line_width();
-	float x = outside ? rect.position.x : rect.position.x + marker_width + theme_cache.marker_gap;
-	if (is_layout_rtl()) {
-		x = rect.position.x + rect.size.x - _get_text_size(_get_translated_item_text(p_idx)).width - (outside ? 0 : marker_width + theme_cache.marker_gap);
+	const Layout &layout = _get_layout(get_size().width);
+	ERR_FAIL_INDEX_V(p_idx, layout.items.size(), Rect2());
+	const ItemBox &item = layout.items[p_idx];
+	const bool rtl = is_layout_rtl();
+	const real_t font_ascent = theme_cache.font->get_ascent(theme_cache.font_size);
+	const real_t font_height = theme_cache.font->get_height(theme_cache.font_size);
+	Rect2 rect;
+	for (int l = 0; l < item.lines.size(); l++) {
+		const LineBox &line = item.lines[l];
+		const Point2 pen = _line_pen(layout, item, l, rtl);
+		const real_t ascent = line.rid.is_valid() ? (real_t)TS->shaped_text_get_ascent(line.rid) : font_ascent;
+		const real_t height = line.rid.is_valid() ? (real_t)TS->shaped_text_get_size(line.rid).y : font_height;
+		const Rect2 line_rect(pen.x, pen.y - ascent, line.width, height);
+		rect = l == 0 ? line_rect : rect.merge(line_rect);
 	}
-	if (text_alignment == HORIZONTAL_ALIGNMENT_CENTER && width <= available) {
-		x += Math::floor((available - width) * 0.5);
-	} else if (text_alignment == HORIZONTAL_ALIGNMENT_RIGHT) {
-		x += available - width;
+	return rect;
+}
+
+// The line of an item at `p_y`, clamped to the item's first and last lines.
+int WebList::_line_at(const ItemBox &p_item, real_t p_y) const {
+	for (int l = 0; l < p_item.lines.size(); l++) {
+		if (p_y < p_item.top + p_item.lines[l].top + p_item.lines[l].height) {
+			return l;
+		}
 	}
-	float baseline = Math::floor((_get_line_height() - theme_cache.font->get_height(theme_cache.font_size)) * 0.5 + theme_cache.font->get_ascent(theme_cache.font_size));
-	return Rect2(Point2(x, rect.position.y + baseline - line->get_line_ascent()), line->get_size());
+	return MAX(0, p_item.lines.size() - 1);
 }
 
 int WebList::get_item_text_column_at_pos(int p_idx, const Point2 &p_position) const {
 	ERR_FAIL_INDEX_V(p_idx, items.size(), 0);
-	return _shape_item_text(p_idx)->hit_test(p_position.x - get_item_text_rect(p_idx).position.x);
+	const Layout &layout = _get_layout(get_size().width);
+	ERR_FAIL_INDEX_V(p_idx, layout.items.size(), 0);
+	const ItemBox &item = layout.items[p_idx];
+	if (item.lines.is_empty()) {
+		return 0;
+	}
+	const int l = _line_at(item, p_position.y);
+	const LineBox &line = item.lines[l];
+	if (!line.rid.is_valid()) {
+		return line.start;
+	}
+	return TS->shaped_text_hit_test_position(line.rid, p_position.x - _line_pen(layout, item, l, is_layout_rtl()).x);
 }
 
 Point2 WebList::get_item_text_caret_position(int p_idx, int p_column) const {
 	ERR_FAIL_INDEX_V(p_idx, items.size(), Point2());
-	Ref<TextLine> line = _shape_item_text(p_idx);
-	CaretInfo caret = TS->shaped_text_get_carets(line->get_rid(), CLAMP(p_column, 0, _get_translated_item_text(p_idx).length()));
-	Rect2 rect = get_item_text_rect(p_idx);
-	return rect.position + Point2(caret.l_caret.position.x, rect.size.y * 0.5);
+	const Layout &layout = _get_layout(get_size().width);
+	ERR_FAIL_INDEX_V(p_idx, layout.items.size(), Point2());
+	const ItemBox &item = layout.items[p_idx];
+	if (item.lines.is_empty() || theme_cache.font.is_null()) {
+		return Point2();
+	}
+	const int column = CLAMP(p_column, 0, _get_translated_item_text(p_idx).length());
+	// A column on a wrap boundary belongs to the line it starts.
+	int l = item.lines.size() - 1;
+	for (int i = 0; i < item.lines.size(); i++) {
+		if (column < item.lines[i].end || (column == item.lines[i].end && (i + 1 == item.lines.size() || item.lines[i + 1].start > column))) {
+			l = i;
+			break;
+		}
+	}
+	const LineBox &line = item.lines[l];
+	const Point2 pen = _line_pen(layout, item, l, is_layout_rtl());
+	if (!line.rid.is_valid()) {
+		return Point2(pen.x, pen.y - theme_cache.font->get_ascent(theme_cache.font_size) + theme_cache.font->get_height(theme_cache.font_size) * 0.5);
+	}
+	const CaretInfo caret = TS->shaped_text_get_carets(line.rid, CLAMP(column, line.start, line.end));
+	return Point2(pen.x + caret.l_caret.position.x, pen.y - TS->shaped_text_get_ascent(line.rid) + TS->shaped_text_get_size(line.rid).y * 0.5);
 }
 
 void WebList::set_item_text_selection(int p_idx, int p_from, int p_to) {
@@ -1105,6 +1340,14 @@ void WebList::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_decoration_thickness", "thickness"), &WebList::set_decoration_thickness);
 	ClassDB::bind_method(D_METHOD("get_decoration_thickness"), &WebList::get_decoration_thickness);
 	ClassDB::bind_method(D_METHOD("get_opacity"), &WebList::get_opacity);
+	ClassDB::bind_method(D_METHOD("set_outline_over_fill", "enabled"), &WebList::set_outline_over_fill);
+	ClassDB::bind_method(D_METHOD("is_outline_over_fill"), &WebList::is_outline_over_fill);
+	ClassDB::bind_method(D_METHOD("set_text_background_color", "color"), &WebList::set_text_background_color);
+	ClassDB::bind_method(D_METHOD("get_text_background_color"), &WebList::get_text_background_color);
+	ClassDB::bind_method(D_METHOD("set_li_padding_inline_start", "padding"), &WebList::set_li_padding_inline_start);
+	ClassDB::bind_method(D_METHOD("get_li_padding_inline_start"), &WebList::get_li_padding_inline_start);
+	ClassDB::bind_method(D_METHOD("set_li_padding_inline_start_percent", "percent"), &WebList::set_li_padding_inline_start_percent);
+	ClassDB::bind_method(D_METHOD("get_li_padding_inline_start_percent"), &WebList::get_li_padding_inline_start_percent);
 	ClassDB::bind_method(D_METHOD("set_text_alignment", "alignment"), &WebList::set_text_alignment);
 	ClassDB::bind_method(D_METHOD("get_text_alignment"), &WebList::get_text_alignment);
 	ClassDB::bind_method(D_METHOD("set_text_direction", "direction"), &WebList::set_text_direction);
@@ -1155,6 +1398,10 @@ void WebList::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "decoration_color"), "set_decoration_color", "get_decoration_color");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "decoration_style", PROPERTY_HINT_ENUM, "Solid,Double,Dotted,Dashed,Wavy"), "set_decoration_style", "get_decoration_style");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "decoration_thickness", PROPERTY_HINT_NONE, "suffix:px"), "set_decoration_thickness", "get_decoration_thickness");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "outline_over_fill"), "set_outline_over_fill", "is_outline_over_fill");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "text_background_color"), "set_text_background_color", "get_text_background_color");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "li_padding_inline_start", PROPERTY_HINT_NONE, "suffix:px"), "set_li_padding_inline_start", "get_li_padding_inline_start");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "li_padding_inline_start_percent", PROPERTY_HINT_NONE, "suffix:%"), "set_li_padding_inline_start_percent", "get_li_padding_inline_start_percent");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "text_alignment", PROPERTY_HINT_ENUM, "Left,Center,Right,Fill"), "set_text_alignment", "get_text_alignment");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "text_direction", PROPERTY_HINT_ENUM, "Auto,Left-to-Right,Right-to-Left,Inherited"), "set_text_direction", "get_text_direction");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "language", PROPERTY_HINT_LOCALE_ID), "set_language", "get_language");
@@ -1207,14 +1454,17 @@ void WebList::_bind_methods() {
 	BIND_THEME_ITEM(Theme::DATA_TYPE_CONSTANT, WebList, padding_block_end);
 	BIND_THEME_ITEM(Theme::DATA_TYPE_CONSTANT, WebList, margin_block_start);
 	BIND_THEME_ITEM(Theme::DATA_TYPE_CONSTANT, WebList, margin_block_end);
-	BIND_THEME_ITEM(Theme::DATA_TYPE_CONSTANT, WebList, marker_gap);
-	BIND_THEME_ITEM(Theme::DATA_TYPE_CONSTANT, WebList, marker_min_width);
 	BIND_THEME_ITEM(Theme::DATA_TYPE_CONSTANT, WebList, item_spacing);
 	BIND_THEME_ITEM(Theme::DATA_TYPE_CONSTANT, WebList, line_height);
 	BIND_THEME_ITEM(Theme::DATA_TYPE_CONSTANT, WebList, letter_spacing);
 	BIND_THEME_ITEM(Theme::DATA_TYPE_CONSTANT, WebList, font_weight);
 	BIND_THEME_ITEM(Theme::DATA_TYPE_CONSTANT, WebList, marker_font_weight);
 	BIND_THEME_ITEM(Theme::DATA_TYPE_CONSTANT, WebList, text_align);
+	BIND_THEME_ITEM(Theme::DATA_TYPE_CONSTANT, WebList, marker_ascent);
+	BIND_THEME_ITEM(Theme::DATA_TYPE_CONSTANT, WebList, marker_above);
+	BIND_THEME_ITEM(Theme::DATA_TYPE_CONSTANT, WebList, marker_below);
+	BIND_THEME_ITEM(Theme::DATA_TYPE_CONSTANT, WebList, text_ascent);
+	BIND_THEME_ITEM(Theme::DATA_TYPE_CONSTANT, WebList, text_descent);
 
 	Item defaults;
 	base_property_helper.set_prefix("item_");
@@ -1232,4 +1482,9 @@ void WebList::_bind_methods() {
 WebList::WebList() {
 	set_focus_mode(FOCUS_ACCESSIBILITY);
 	property_helper.setup_for_instance(base_property_helper, this);
+}
+
+WebList::~WebList() {
+	_free_layout(layout_cache[0]);
+	_free_layout(layout_cache[1]);
 }

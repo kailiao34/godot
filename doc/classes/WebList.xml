@@ -194,14 +194,23 @@
 		<member name="language" type="String" setter="set_language" getter="get_language" default="&quot;&quot;">
 			Language code used for text shaping and line-breaking.
 		</member>
+		<member name="li_padding_inline_start" type="float" setter="set_li_padding_inline_start" getter="get_li_padding_inline_start" default="0.0">
+			The items' inline-start padding in pixels, equivalent to CSS [code]li { padding-left: ... }[/code]. It moves the item's text away from the list's content edge. An outside marker stays at the item's border edge, so the gap between marker and text grows; an inside marker is part of the item's content and moves with the text.
+		</member>
+		<member name="li_padding_inline_start_percent" type="float" setter="set_li_padding_inline_start_percent" getter="get_li_padding_inline_start_percent" default="0.0">
+			A share of the list's content width added to [member li_padding_inline_start], for a CSS percentage padding.
+		</member>
 		<member name="list_style_position" type="int" setter="set_list_style_position" getter="get_list_style_position" enum="WebList.ListStylePosition" default="0">
-			Controls marker placement, equivalent to CSS [code]list-style-position[/code].
+			Controls marker placement, equivalent to CSS [code]list-style-position[/code]. An outside marker is a box of its own that ends at the item's border edge (a counter's text with its trailing space, or a symbol placed from the marker font's ascent) and does not affect the item's lines. An inside marker is the first inline box of the item's first line.
 		</member>
 		<member name="list_style_type" type="int" setter="set_list_style_type" getter="get_list_style_type" enum="WebList.ListStyleType" default="0">
 			Controls marker generation, equivalent to CSS [code]list-style-type[/code].
 		</member>
 		<member name="list_tag" type="int" setter="set_list_tag" getter="get_list_tag" enum="WebList.ListTag" default="0">
 			Selects unordered [code]&lt;ul&gt;[/code] or ordered [code]&lt;ol&gt;[/code] behavior.
+		</member>
+		<member name="outline_over_fill" type="bool" setter="set_outline_over_fill" getter="is_outline_over_fill" default="false">
+			If [code]true[/code], the text outline is painted over the fill, like CSS [code]-webkit-text-stroke[/code] (a stroke centered on the glyph edge). Otherwise the outline is drawn under the text.
 		</member>
 		<member name="opacity" type="float" setter="set_opacity" getter="get_opacity" default="1.0">
 			Opacity multiplier for text, markers, and styleboxes, equivalent to CSS [code]opacity[/code].
@@ -214,6 +223,9 @@
 		</member>
 		<member name="start" type="int" setter="set_start" getter="get_start" default="1">
 			First ordered-list number, equivalent to HTML [code]ol[start][/code].
+		</member>
+		<member name="text_background_color" type="Color" setter="set_text_background_color" getter="get_text_background_color" default="Color(0, 0, 0, 0)">
+			Background painted behind every line of the items' text (an inline box around the text, not around the marker), like the background of a [code]span[/code] in each [code]li[/code]. A transparent color paints nothing.
 		</member>
 		<member name="text_alignment" type="int" setter="set_text_alignment" getter="get_text_alignment" enum="HorizontalAlignment" default="0">
 			Horizontal alignment of item text, equivalent to CSS [code]text-align[/code].
@@ -259,11 +271,14 @@
 		<theme_item name="marker_font_weight" data_type="constant" type="int" default="400">
 			Marker weight requested by the theme, equivalent to CSS [code]::marker { font-weight: ... }[/code].
 		</theme_item>
-		<theme_item name="marker_gap" data_type="constant" type="int" default="8">
-			Distance between marker and item text, equivalent to browser marker/content separation.
+		<theme_item name="marker_above" data_type="constant" type="int" default="0">
+			With [theme_item marker_ascent] set: how far the marker's inline box reaches above the baseline of the first line (its ascent plus half-leading). With [member list_style_position] inside, a marker taller than the text grows the first line.
 		</theme_item>
-		<theme_item name="marker_min_width" data_type="constant" type="int" default="24">
-			Minimum marker box width in pixels.
+		<theme_item name="marker_ascent" data_type="constant" type="int" default="0">
+			The marker font's rounded ascent as the host measures it, in pixels. Sizes and places the [code]disc[/code], [code]circle[/code] and [code]square[/code] symbols. [code]0[/code] derives the marker box from the fonts.
+		</theme_item>
+		<theme_item name="marker_below" data_type="constant" type="int" default="0">
+			With [theme_item marker_ascent] set: how far the marker's inline box reaches below the baseline of the first line.
 		</theme_item>
 		<theme_item name="outline_size" data_type="constant" type="int" default="0">
 			Text outline size in pixels.
@@ -279,6 +294,12 @@
 		</theme_item>
 		<theme_item name="padding_inline_start" data_type="constant" type="int" default="40">
 			Inline-start padding in pixels, equivalent to CSS [code]padding-inline-start[/code] for default [code]ul[/code] and [code]ol[/code] elements.
+		</theme_item>
+		<theme_item name="text_ascent" data_type="constant" type="int" default="0">
+			The text font's rounded ascent for [member text_background_color], in pixels. [code]0[/code] uses the shaped line's ascent.
+		</theme_item>
+		<theme_item name="text_descent" data_type="constant" type="int" default="0">
+			The text font's rounded descent for [member text_background_color], in pixels. [code]0[/code] uses the shaped line's descent.
 		</theme_item>
 		<theme_item name="text_align" data_type="constant" type="int" default="0">
 			Theme-level text alignment hint, equivalent to CSS [code]text-align[/code]. The node property [member text_alignment] controls the active alignment.

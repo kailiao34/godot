@@ -30,14 +30,10 @@
 
 #pragma once
 
-class TextLine;
-
 #include "scene/gui/control.h"
 #include "scene/property_list_helper.h"
 
 class InputEventMouseMotion;
-
-class TextParagraph;
 
 class WebList : public Control {
 	GDCLASS(WebList, Control);
@@ -118,6 +114,66 @@ private:
 	int decoration_style = 0; // 0 solid, 1 double, 2 dotted, 3 dashed, 4 wavy.
 	real_t decoration_thickness = 0;
 	void _draw_decorations(RID p_ci, const RID &p_line, real_t p_x, real_t p_baseline, real_t p_width, const Color &p_text_color) const;
+	// `-webkit-text-stroke` is painted over the fill; a Godot outline is drawn under it.
+	bool outline_over_fill = false;
+	// The background of the items' text (an inline box around each line), not of the markers.
+	Color text_background_color = Color(0, 0, 0, 0);
+	// CSS `li { padding-left }`: the items' inline-start padding, in px plus a share of the
+	// list's content width. An outside marker stays at the item's border edge while the
+	// text moves; an inside marker moves with the text.
+	real_t li_padding_inline_start = 0;
+	real_t li_padding_inline_start_percent = 0;
+
+	// One shaped line of an item, in the item's own coordinates.
+	struct LineBox {
+		RID rid;
+		int start = 0;
+		int end = 0;
+		real_t x = 0; // Inline offset of the text: an inside marker's advance on the first line.
+		real_t top = 0;
+		real_t height = 0;
+		real_t baseline = 0; // From the line's top.
+		real_t width = 0;
+	};
+	struct ItemBox {
+		RID text_rid;
+		Vector<LineBox> lines;
+		real_t top = 0;
+		real_t height = 0;
+		real_t marker_advance = 0;
+	};
+	struct Layout {
+		bool valid = false;
+		real_t width = -1;
+		real_t left = 0;
+		real_t top = 0;
+		real_t item_width = 0; // The items' content width, after their start padding.
+		real_t item_pad = 0; // The items' inline-start padding, resolved.
+		real_t content_bottom = 0;
+		Vector<ItemBox> items;
+	};
+	// The marker's inline box: its font size, rounded ascent, and its share of
+	// the line above and below the baseline.
+	struct MarkerBox {
+		int font_size = 0;
+		int ascent = 0;
+		int above = 0;
+		int below = 0;
+	};
+	mutable Layout layout_cache[2];
+	void _free_layout(Layout &r_layout) const;
+	void _invalidate_layout();
+	void _content_changed();
+	void _build_layout(Layout &r_layout, real_t p_width) const;
+	const Layout &_get_layout(real_t p_width) const;
+	Point2 _line_pen(const Layout &p_layout, const ItemBox &p_item, int p_line, bool p_rtl) const;
+	int _line_at(const ItemBox &p_item, real_t p_y) const;
+	MarkerBox _marker_box() const;
+	bool _is_symbol_marker(int p_idx) const;
+	String _inside_marker_text(int p_idx) const;
+	real_t _inside_marker_advance(int p_idx, const MarkerBox &p_box) const;
+	real_t _outside_marker_width(int p_idx, const MarkerBox &p_box) const;
+	int _text_baseline() const;
 
 	struct ThemeCache {
 		Ref<StyleBox> normal_style;
@@ -146,14 +202,20 @@ private:
 		int padding_block_end = 0;
 		int margin_block_start = 0;
 		int margin_block_end = 0;
-		int marker_gap = 0;
-		int marker_min_width = 0;
 		int item_spacing = 0;
 		int line_height = 0;
 		int letter_spacing = 0;
 		int font_weight = 400;
 		int marker_font_weight = 400;
 		int text_align = 0;
+		// Host-supplied browser metrics (0: derive them from the fonts): the
+		// marker font's rounded ascent and its inline box's extent above and
+		// below the baseline; the text font's rounded ascent and descent.
+		int marker_ascent = 0;
+		int marker_above = 0;
+		int marker_below = 0;
+		int text_ascent = 0;
+		int text_descent = 0;
 	} theme_cache;
 
 	static inline PropertyListHelper base_property_helper;
@@ -169,14 +231,9 @@ private:
 	Size2 _get_text_size(const String &p_text, bool p_marker = false) const;
 	Rect2 _get_item_rect(int p_idx) const;
 	Rect2 _get_item_rect_for_width(int p_idx, real_t p_width) const;
-	int _marker_column_width() const;
-	real_t _item_text_available(real_t p_item_width) const;
-	int _item_line_count(int p_idx, real_t p_available) const;
-	Ref<TextParagraph> _shape_item_paragraph(int p_idx, real_t p_available) const;
 	real_t _content_height_for_width(real_t p_width) const;
 	void _update_hovered_item(const Point2 &p_position);
 	String _get_translated_item_text(int p_idx) const;
-	Ref<TextLine> _shape_item_text(int p_idx) const;
 
 protected:
 	virtual void gui_input(const Ref<InputEvent> &p_event) override;
@@ -192,6 +249,14 @@ public:
 	virtual Size2 get_minimum_size() const override;
 	void set_autowrap(bool p_autowrap);
 	bool is_autowrap() const;
+	void set_outline_over_fill(bool p_enabled);
+	bool is_outline_over_fill() const;
+	void set_text_background_color(const Color &p_color);
+	Color get_text_background_color() const;
+	void set_li_padding_inline_start(real_t p_padding);
+	real_t get_li_padding_inline_start() const;
+	void set_li_padding_inline_start_percent(real_t p_percent);
+	real_t get_li_padding_inline_start_percent() const;
 	void set_decoration_lines(int p_lines);
 	int get_decoration_lines() const;
 	void set_decoration_color(const Color &p_color);
@@ -270,6 +335,7 @@ public:
 	void push_mouse_motion(const Ref<InputEventMouseMotion> &p_event);
 
 	WebList();
+	~WebList();
 };
 
 VARIANT_ENUM_CAST(WebList::ListTag);
