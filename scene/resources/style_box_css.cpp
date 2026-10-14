@@ -489,10 +489,14 @@ static void draw_discrete_side(RID p_ci, const Vector2 &oA, const Vector2 &oB, c
 // (BoxBorderPainter::DrawDashedDottedBoxSideFromPath): a single dash pattern
 // runs along the closed centreline of the rounded ring -- starting where the
 // top edge leaves the top-left corner and going clockwise, like Skia's
-// addRRect -- with the closed-path SelectBestDashGap, so the loop ends on a
-// gap. Every dash spans the full ring width; wide dotted borders are round
-// dots. Returns false (and draws nothing) for rings it does not model: mixed
-// styles or widths, or a loop too short for dashes.
+// addRRect -- with the closed-path SelectBestDashGap over its whole-pixel
+// length (BoxBorderPainter::DrawCurvedDashedDottedBoxSide passes
+// int(centerline length) and IsClosed()), so the loop ends on a gap. Chrome's
+// measured length runs ~1% longer than the circular centreline, so near-ties
+// can pick one dash more (86x27 r=18 5px: 13 where this picks 12; about 1 box
+// in 8 in a survey). Every dash spans the full ring width; wide dotted
+// borders are round dots. Returns false (and draws nothing) for rings it does
+// not model: mixed styles or widths, or a loop too short for dashes.
 static bool draw_rounded_discrete_ring(RID p_ci, const Vector<Vector2> &p_outer, const Vector<Vector2> &p_inner,
 		const Color p_colors[4], const StyleBoxCSS::BorderStyle p_styles[4], const real_t p_widths[4], int p_detail) {
 	const int pc = p_detail + 1;
@@ -531,12 +535,13 @@ static bool draw_rounded_discrete_ring(RID p_ci, const Vector<Vector2> &p_outer,
 		return false;
 	}
 	// StrokeData::SelectBestDashGap for a closed path: as many gaps as dashes.
-	const real_t min_dashes = Math::floor(total / (dash + nominal_gap));
+	const real_t fit = Math::floor(total);
+	const real_t min_dashes = Math::floor(fit / (dash + nominal_gap));
 	const real_t max_dashes = min_dashes + 1.0;
-	const real_t min_gap = min_dashes > 0.0 ? (total - min_dashes * dash) / min_dashes : (real_t)Math::INF;
-	const real_t max_gap = (total - max_dashes * dash) / max_dashes;
+	const real_t min_gap = min_dashes > 0.0 ? (fit - min_dashes * dash) / min_dashes : (real_t)Math::INF;
+	const real_t max_gap = (fit - max_dashes * dash) / max_dashes;
 	const real_t gap = (max_gap <= 0.0 || Math::abs(min_gap - nominal_gap) < Math::abs(max_gap - nominal_gap)) ? min_gap : max_gap;
-	const int count = MAX(1, (int)Math::round(total / (dash + gap)));
+	const int count = MAX(1, (int)Math::round(fit / (dash + gap)));
 	const bool round_dots = dotted && width > 3.0;
 	const int dot_segments = CLAMP((int)Math::ceil(width * 2.0), 12, 48);
 	int seg = 0;

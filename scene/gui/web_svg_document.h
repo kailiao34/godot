@@ -59,6 +59,10 @@ struct WebSVGDocumentInfo {
 
 	// Cheap flags computed while scanning, so hot paths can skip work.
 	bool has_current_color = false;
+	// True when the markup holds CSS the rasterizer cannot read on its own (a
+	// stylesheet, var(), calc(), modern colors, ...), so WebSVGStyle has to flatten
+	// it before rendering.
+	bool needs_css_resolution = false;
 	bool has_animations = false;
 	int element_count = 0;
 

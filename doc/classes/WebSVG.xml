@@ -22,6 +22,17 @@
 				Returns the border box in local coordinates. Equals [code]Rect2(Vector2(), size)[/code] under [code]border-box[/code] sizing; under [code]content-box[/code] it grows beyond the node size by the border and padding.
 			</description>
 		</method>
+		<method name="resolve_css" qualifiers="static">
+			<return type="Dictionary" />
+			<param index="0" name="markup" type="String" />
+			<param index="1" name="viewport" type="Vector2" />
+			<param index="2" name="variables" type="Dictionary" default="{}" />
+			<param index="3" name="dark" type="bool" default="false" />
+			<description>
+				Flattens the document's CSS the way the renderer does before rasterizing: [code]&lt;style&gt;[/code] rules (type, class, id, attribute and structural selectors, combinators, [code]:is()[/code] / [code]:not()[/code] / [code]:where()[/code], nesting, [code]!important[/code], specificity), [code]var()[/code], [code]calc()[/code] and the other math functions, [code]@media[/code] / [code]@supports[/code], modern colors, CSS transforms with [code]transform-origin[/code], and [code]filter: blur()[/code]. Everything is written back as inline styles that the rasterizer can read.
+				[param viewport] is what [code]@media (width)[/code] and [code]vw[/code] resolve against. Returns a dictionary with [code]markup[/code] (the flattened document), [code]unsupported[/code] (CSS that cannot be honored) and [code]warnings[/code].
+			</description>
+		</method>
 		<method name="parse_svg">
 			<return type="int" enum="Error" />
 			<param index="0" name="markup" type="String" />
@@ -164,6 +175,12 @@
 		</member>
 		<member name="fit_align" type="int" setter="set_fit_align" getter="get_fit_align" enum="WebSVG.FitAlign" default="4">
 			Where the document sits inside the content box when [member fit] preserves its aspect ratio. Corresponds to the alignment half of [code]preserveAspectRatio[/code]. Has no effect when [member fit] is [constant FIT_NONE] or [constant FIT_FILL].
+		</member>
+		<member name="css_variables" type="Dictionary" setter="set_css_variables" getter="get_css_variables" default="{}">
+			Custom properties made visible to the document's [code]var()[/code] as if they were declared on [code]:root[/code]. Keys may be written with or without the leading [code]--[/code]. Linking a design token is a matter of putting its value here; the document itself never has to contain it.
+		</member>
+		<member name="dark_color_scheme" type="bool" setter="set_dark_color_scheme" getter="is_dark_color_scheme" default="false">
+			Whether [code]@media (prefers-color-scheme: dark)[/code] matches and [code]light-dark()[/code] picks its second argument.
 		</member>
 		<member name="animations_enabled" type="bool" setter="set_animations_enabled" getter="are_animations_enabled" default="true">
 			Whether child [WebSVGAnimation] elements play on the canvas. During playback the typed child DOM is serialized every frame with the current animated values (re-rasterizing only when the document changed), so raw markup extras such as [code]&lt;defs&gt;[/code] are not rendered while an animation is active. Serialized markup always includes the SMIL tags regardless of this setting.

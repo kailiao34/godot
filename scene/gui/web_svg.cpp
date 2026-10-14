@@ -208,12 +208,71 @@ String WebSVG::_build_svg_document(const Size2 &p_viewport, bool p_for_render) c
 	svg += " width=\"" + rtos(p_viewport.x) + "\" height=\"" + rtos(p_viewport.y) + "\">";
 	svg += _document_body(p_for_render);
 	svg += "</svg>";
+	// The rasterizer only reads a small CSS subset, so what it is handed has the
+	// document's stylesheet already cascaded into inline styles. The exported
+	// document stays untouched: a browser reads the original CSS natively.
+	const bool css_resolved = p_for_render && doc_info.needs_css_resolution;
+	if (css_resolved) {
+		svg = _resolve_css(svg, p_viewport);
+	}
 	// CSS `currentColor` resolves to the inherited text color. The flag comes from
 	// the document scan so a large static document skips the search entirely.
-	if (doc_info.has_current_color) {
+	if (doc_info.has_current_color || css_resolved) {
 		svg = svg.replace("currentColor", "#" + current_color.to_html(false));
 	}
 	return svg;
+}
+
+WebSVGStyleEnv WebSVG::_css_env(const Size2 &p_viewport) const {
+	WebSVGStyleEnv env;
+	env.viewport = p_viewport;
+	env.dark_color_scheme = dark_color_scheme;
+	env.current_color = current_color;
+	const Array keys = css_variables.keys();
+	for (int i = 0; i < keys.size(); i++) {
+		String name = String(keys[i]).strip_edges();
+		if (name.is_empty()) {
+			continue;
+		}
+		if (!name.begins_with("--")) {
+			name = "--" + name;
+		}
+		env.custom_properties[name] = String(css_variables[keys[i]]);
+	}
+	return env;
+}
+
+String WebSVG::_resolve_css(const String &p_svg, const Size2 &p_viewport) const {
+	uint64_t key = p_svg.hash64();
+	key = key * 31 + css_variables.hash();
+	key = key * 31 + (dark_color_scheme ? 1 : 0);
+	key = key * 31 + current_color.to_rgba32();
+	if (css_cache_valid && key == css_cache_key) {
+		return css_cache_out;
+	}
+	css_cache_out = WebSVGStyle::resolve(p_svg, _css_env(p_viewport));
+	css_cache_key = key;
+	css_cache_valid = true;
+	return css_cache_out;
+}
+
+// Surfaces what the CSS pass could not honor next to the other document reports.
+void WebSVG::_collect_css_report() {
+	if (!doc_info.needs_css_resolution) {
+		return;
+	}
+	WebSVGStyleReport report;
+	WebSVGStyle::resolve(_build_svg_document(doc_info.intrinsic_size, true), _css_env(doc_info.intrinsic_size), &report);
+	for (const String &u : report.unsupported) {
+		if (!doc_info.unsupported.has(u)) {
+			doc_info.unsupported.push_back(u);
+		}
+	}
+	for (const String &w : report.warnings) {
+		if (!doc_info.warnings.has(w)) {
+			doc_info.warnings.push_back(w);
+		}
+	}
 }
 
 void WebSVG::_rebuild_texture_if_needed() {
@@ -319,6 +378,52 @@ void WebSVG::_apply_animation_frame(Node *p_parent) {
 		}
 		_apply_animation_frame(child);
 	}
+}
+
+void WebSVG::set_css_variables(const Dictionary &p_variables) {
+	if (css_variables == p_variables) {
+		return;
+	}
+	css_variables = p_variables;
+	mark_content_dirty();
+	queue_redraw();
+}
+
+Dictionary WebSVG::get_css_variables() const {
+	return css_variables;
+}
+
+void WebSVG::set_dark_color_scheme(bool p_dark) {
+	if (dark_color_scheme == p_dark) {
+		return;
+	}
+	dark_color_scheme = p_dark;
+	mark_content_dirty();
+	queue_redraw();
+}
+
+bool WebSVG::is_dark_color_scheme() const {
+	return dark_color_scheme;
+}
+
+Dictionary WebSVG::resolve_css(const String &p_markup, const Vector2 &p_viewport, const Dictionary &p_variables, bool p_dark) {
+	WebSVGStyleEnv env;
+	env.viewport = p_viewport;
+	env.dark_color_scheme = p_dark;
+	const Array keys = p_variables.keys();
+	for (int i = 0; i < keys.size(); i++) {
+		String name = String(keys[i]).strip_edges();
+		if (!name.begins_with("--")) {
+			name = "--" + name;
+		}
+		env.custom_properties[name] = String(p_variables[keys[i]]);
+	}
+	WebSVGStyleReport report;
+	Dictionary out;
+	out["markup"] = WebSVGStyle::resolve(p_markup, env, &report);
+	out["unsupported"] = report.unsupported;
+	out["warnings"] = report.warnings;
+	return out;
 }
 
 void WebSVG::set_current_color(const Color &p_color) {
@@ -1188,6 +1293,7 @@ Error WebSVG::_load_document(const String &p_markup, const String &p_base_dir) {
 	const Error err = _parse_document(markup);
 	doc_info.removed = removed;
 	doc_info.warnings = warnings;
+	_collect_css_report();
 	if (embed_source) {
 		embedded_source = markup;
 	}
@@ -1220,6 +1326,8 @@ Error WebSVG::_parse_document(const String &p_markup) {
 	WebSVGDocumentInfo info;
 	const bool has_root = WebSVGDocument::split_root(p_markup, info);
 	WebSVGDocument::scan(p_markup, info);
+	info.needs_css_resolution = WebSVGStyle::needs_resolution(p_markup);
+	css_cache_valid = false;
 	doc_info = info;
 	svg_open_attrs = info.root_attributes;
 	svg_body = info.body;
@@ -1627,6 +1735,11 @@ void WebSVG::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("set_current_color", "color"), &WebSVG::set_current_color);
 	ClassDB::bind_method(D_METHOD("get_current_color"), &WebSVG::get_current_color);
+	ClassDB::bind_method(D_METHOD("set_css_variables", "variables"), &WebSVG::set_css_variables);
+	ClassDB::bind_method(D_METHOD("get_css_variables"), &WebSVG::get_css_variables);
+	ClassDB::bind_method(D_METHOD("set_dark_color_scheme", "dark"), &WebSVG::set_dark_color_scheme);
+	ClassDB::bind_method(D_METHOD("is_dark_color_scheme"), &WebSVG::is_dark_color_scheme);
+	ClassDB::bind_static_method("WebSVG", D_METHOD("resolve_css", "markup", "viewport", "variables", "dark"), &WebSVG::resolve_css, DEFVAL(Dictionary()), DEFVAL(false));
 	ClassDB::bind_method(D_METHOD("set_animations_enabled", "enabled"), &WebSVG::set_animations_enabled);
 	ClassDB::bind_method(D_METHOD("are_animations_enabled"), &WebSVG::are_animations_enabled);
 	ClassDB::bind_method(D_METHOD("set_animation_time", "seconds"), &WebSVG::set_animation_time);
@@ -1689,6 +1802,8 @@ void WebSVG::_bind_methods() {
 
 	ADD_GROUP("Animation", "");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "animations_enabled"), "set_animations_enabled", "are_animations_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::DICTIONARY, "css_variables"), "set_css_variables", "get_css_variables");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "dark_color_scheme"), "set_dark_color_scheme", "is_dark_color_scheme");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "animation_time", PROPERTY_HINT_NONE, "suffix:s", PROPERTY_USAGE_NONE), "set_animation_time", "get_animation_time");
 
 	BIND_ENUM_CONSTANT(SOURCE_MARKUP);

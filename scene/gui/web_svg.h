@@ -32,6 +32,7 @@
 
 #include "scene/gui/control.h"
 #include "scene/gui/web_svg_document.h"
+#include "scene/gui/web_svg_style.h"
 #include "scene/resources/style_box_css.h"
 #include "scene/resources/texture.h"
 
@@ -128,6 +129,16 @@ private:
 	// inherited `color` in the browser.
 	Color current_color = Color(0, 0, 0, 1);
 
+	// Host-supplied custom properties (`--name` -> value), visible to `var()` as if
+	// declared on `:root`. This is how design tokens reach a document's CSS.
+	Dictionary css_variables;
+	// `prefers-color-scheme` and `light-dark()`.
+	bool dark_color_scheme = false;
+	// The flattened render document is reused until its input changes.
+	mutable uint64_t css_cache_key = 0;
+	mutable String css_cache_out;
+	mutable bool css_cache_valid = false;
+
 	// --- Document source ---
 	Ref<Texture2D> svg_source; // A `.svg` imported as DPITexture.
 	String svg_file_path;
@@ -182,6 +193,10 @@ private:
 	String _document_body(bool p_for_render) const;
 	String _build_svg_document(const Size2 &p_viewport, bool p_for_render = false) const;
 	void _update_render_body();
+	WebSVGStyleEnv _css_env(const Size2 &p_viewport) const;
+	// Flattens the document's CSS for the rasterizer (cached).
+	String _resolve_css(const String &p_svg, const Size2 &p_viewport) const;
+	void _collect_css_report();
 	String _fit_preserve_aspect_ratio(const Size2 &p_viewport) const;
 	void _rebuild_texture_if_needed();
 
@@ -277,6 +292,17 @@ public:
 	// CSS `currentColor` resolution (the inherited text color).
 	void set_current_color(const Color &p_color);
 	Color get_current_color() const;
+
+	// Custom properties and color scheme for the document's CSS.
+	void set_css_variables(const Dictionary &p_variables);
+	Dictionary get_css_variables() const;
+	void set_dark_color_scheme(bool p_dark);
+	bool is_dark_color_scheme() const;
+
+	// Flattens `<style>` rules, var(), calc(), @media, modern colors, CSS transforms
+	// and filter functions into inline styles, exactly as the renderer does before
+	// rasterizing. Returns {markup, unsupported, warnings}.
+	static Dictionary resolve_css(const String &p_markup, const Vector2 &p_viewport, const Dictionary &p_variables = Dictionary(), bool p_dark = false);
 
 	// SMIL animation playback.
 	void set_animations_enabled(bool p_enabled);
