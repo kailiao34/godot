@@ -33,7 +33,10 @@
 #include "core/input/input_event.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
+#include "core/object/ref_counted.h"
+#include "core/os/mutex.h"
 #include "core/os/os.h"
+#include "core/templates/hash_map.h"
 #include "scene/gui/scroll_bar.h"
 #include "scene/gui/web_input.h"
 #include "scene/resources/font.h"
@@ -318,6 +321,42 @@ static const TaMonoFace TA_MONO_FACES[] = {
 	{ "ko", "C:/Windows/Fonts/gulim.ttc", 1, "GulimChe" },
 };
 
+// Every textarea of a locale draws with the same UA face, and an author family
+// resolves to the same installed file. One FontFile per control would read the
+// file (MingLiU's collection is 27 MB) and warm a glyph/shaping cache for each
+// of them, so the controls share one FontFile per file and face. Only the
+// controls hold them: the last one to go frees it (no static reference
+// outlives the scene).
+static Mutex ta_shared_mutex;
+static HashMap<String, ObjectID> ta_font_ids; // "<path>#<face>" -> FontFile.
+
+static Ref<FontFile> _ta_shared_font_file(const String &p_path, int p_face) {
+	MutexLock lock(ta_shared_mutex);
+	String key = p_path + "#" + itos(p_face);
+	ObjectID *id = ta_font_ids.getptr(key);
+	Ref<FontFile> ff = id ? ObjectDB::get_ref<FontFile>(*id) : Ref<FontFile>();
+	if (ff.is_valid()) {
+		return ff;
+	}
+	ff.instantiate();
+	if (ff->load_dynamic_font(p_path) != OK) {
+		ta_font_ids.erase(key);
+		return Ref<FontFile>();
+	}
+	if (p_face > 0) {
+		ff->set_face_index(0, p_face);
+	}
+	// Unhinted, sub-pixel positioned advances, like the browser, and the face's
+	// embedded bitmap strikes where it has them: the browser draws them at the
+	// sizes it has one for (zh-TW MingLiU at the UA 13.33px is drawn from its
+	// 13px strike; SimSun, MS Gothic at 12-16px), whole-pixel advances included.
+	ff->set_hinting(TextServer::HINTING_NONE);
+	ff->set_subpixel_positioning(TextServer::SUBPIXEL_POSITIONING_ONE_QUARTER);
+	ff->set_disable_embedded_bitmaps(false);
+	ta_font_ids[key] = ff->get_instance_id();
+	return ff;
+}
+
 Ref<Font> WebTextArea::_ua_monospace_font() {
 	String locale = _effective_font_locale();
 	if (ua_font.is_valid() && ua_font_locale == locale) {
@@ -334,15 +373,8 @@ Ref<Font> WebTextArea::_ua_monospace_font() {
 			break;
 		}
 	}
-	Ref<FontFile> ff;
-	ff.instantiate();
-	if (ff->load_dynamic_font(file) == OK) {
-		if (face > 0) {
-			ff->set_face_index(0, face);
-		}
-		// Unhinted, sub-pixel positioned advances, like the browser.
-		ff->set_hinting(TextServer::HINTING_NONE);
-		ff->set_subpixel_positioning(TextServer::SUBPIXEL_POSITIONING_ONE_QUARTER);
+	Ref<FontFile> ff = _ta_shared_font_file(file, face);
+	if (ff.is_valid()) {
 		ua_font = ff;
 	} else {
 		Ref<SystemFont> sf;
@@ -388,14 +420,7 @@ static Ref<FontFile> _ta_system_font_file(const String &p_family, int p_weight) 
 	if (path.is_empty()) {
 		return Ref<FontFile>();
 	}
-	Ref<FontFile> ff;
-	ff.instantiate();
-	if (ff->load_dynamic_font(path) != OK) {
-		return Ref<FontFile>();
-	}
-	ff->set_hinting(TextServer::HINTING_NONE);
-	ff->set_subpixel_positioning(TextServer::SUBPIXEL_POSITIONING_ONE_QUARTER);
-	return ff;
+	return _ta_shared_font_file(path, 0);
 }
 
 void WebTextArea::_rebuild_css_font() {
@@ -403,8 +428,21 @@ void WebTextArea::_rebuild_css_font() {
 	real_t spacing = css.has_letter_spacing ? css.letter_spacing : 0.0;
 	if (css.font_family.is_empty() && weight == 400 && spacing == 0.0) {
 		css_font = Ref<Font>();
+		css_font_key = CssFontKey();
 		return;
 	}
+	// A new font is a new editor font override, which re-shapes the editor,
+	// and new metrics to read: keep the one built for the same inputs.
+	CssFontKey key;
+	key.family = css.font_family;
+	key.weight = weight;
+	key.spacing = spacing;
+	key.theme_font = _theme_font();
+	key.ua_font = ua_font;
+	if (css_font.is_valid() && key == css_font_key) {
+		return;
+	}
+	css_font_key = key;
 	Ref<Font> base;
 	if (!css.font_family.is_empty()) {
 		// The first installed family of the list is the primary font, as in the
@@ -634,20 +672,60 @@ void WebTextArea::_sync_editor() {
 	syncing = true;
 	BoxModel b = _compute_box_model();
 	Size2 size = get_size();
-	Point2 inner_pos(b.border[3], b.border[0]);
-	Size2 inner_size(MAX((real_t)0, size.x - b.border[1] - b.border[3]), MAX((real_t)0, size.y - b.border[0] - b.border[2]));
-	editor->set_position(inner_pos);
-	editor->set_size(inner_size);
+	// Typography and padding first, so the editor lays its text out once at the
+	// new size. Every theme override and every padding change re-shapes the
+	// editor's text, so only what changed is written, as one notification.
+	bool bulk = false;
+	auto begin_write = [&]() {
+		if (!bulk) {
+			editor->begin_bulk_theme_override();
+			bulk = true;
+		}
+	};
 	if (editor_box.is_valid()) {
 		const Side sides[] = { SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM, SIDE_LEFT };
 		for (int i = 0; i < 4; i++) {
 			// StyleBox writes emit changed even when the margin is identical.
 			// Pure geometry updates must not invalidate TextEdit's text layout.
 			if (editor_box->get_content_margin(sides[i]) != b.padding[i]) {
+				begin_write();
 				editor_box->set_content_margin(sides[i], b.padding[i]);
 			}
 		}
 	}
+	Ref<Font> font = _resolved_font();
+	if (font.is_valid() && (!editor->has_theme_font_override(SceneStringName(font)) || editor->get_theme_font(SceneStringName(font)) != font)) {
+		begin_write();
+		editor->add_theme_font_override(SceneStringName(font), font);
+	}
+	int font_size = MAX(1, (int)Math::round(b.font_size));
+	if (!editor->has_theme_font_size_override(SceneStringName(font_size)) || editor->get_theme_font_size(SceneStringName(font_size)) != font_size) {
+		begin_write();
+		editor->add_theme_font_size_override(SceneStringName(font_size), font_size);
+	}
+	auto sync_color = [&](const StringName &p_name, const Color &p_color) {
+		if (!editor->has_theme_color_override(p_name) || editor->get_theme_color(p_name) != p_color) {
+			begin_write();
+			editor->add_theme_color_override(p_name, p_color);
+		}
+	};
+	sync_color(SceneStringName(font_color), b.text_color);
+	sync_color("font_readonly_color", b.text_color);
+	sync_color("font_placeholder_color", _theme_color("font_placeholder_color", theme_cache.font_placeholder_color, TA_PLACEHOLDER));
+	sync_color("selection_color", _theme_color("selection_color", theme_cache.selection_color, TA_SELECTION));
+	sync_color("caret_color", _theme_color("caret_color", theme_cache.caret_color, TA_TEXT));
+	int line_spacing = _line_spacing(b);
+	if (!editor->has_theme_constant_override("line_spacing") || editor->get_theme_constant("line_spacing") != line_spacing) {
+		begin_write();
+		editor->add_theme_constant_override("line_spacing", line_spacing);
+	}
+	if (bulk) {
+		editor->end_bulk_theme_override();
+	}
+	Point2 inner_pos(b.border[3], b.border[0]);
+	Size2 inner_size(MAX((real_t)0, size.x - b.border[1] - b.border[3]), MAX((real_t)0, size.y - b.border[0] - b.border[2]));
+	editor->set_position(inner_pos);
+	editor->set_size(inner_size);
 	if (editor->get_text() != value) {
 		editor->set_text(value);
 	}
@@ -658,25 +736,6 @@ void WebTextArea::_sync_editor() {
 	editor->set_line_wrapping_mode(wrap_mode == WRAP_OFF ? TextEdit::LINE_WRAPPING_NONE : TextEdit::LINE_WRAPPING_BOUNDARY);
 	editor->set_default_cursor_shape(disabled ? CURSOR_ARROW : CURSOR_IBEAM);
 	set_default_cursor_shape(disabled ? CURSOR_ARROW : CURSOR_IBEAM);
-	Ref<Font> font = _resolved_font();
-	if (font.is_valid() && (!editor->has_theme_font_override(SceneStringName(font)) || editor->get_theme_font(SceneStringName(font)) != font)) {
-		editor->add_theme_font_override(SceneStringName(font), font);
-	}
-	int font_size = MAX(1, (int)Math::round(b.font_size));
-	if (!editor->has_theme_font_size_override(SceneStringName(font_size)) || editor->get_theme_font_size(SceneStringName(font_size)) != font_size) {
-		editor->add_theme_font_size_override(SceneStringName(font_size), font_size);
-	}
-	auto sync_color = [&](const StringName &p_name, const Color &p_color) {
-		if (!editor->has_theme_color_override(p_name) || editor->get_theme_color(p_name) != p_color) {
-			editor->add_theme_color_override(p_name, p_color);
-		}
-	};
-	sync_color(SceneStringName(font_color), b.text_color);
-	sync_color("font_readonly_color", b.text_color);
-	sync_color("font_placeholder_color", _theme_color("font_placeholder_color", theme_cache.font_placeholder_color, TA_PLACEHOLDER));
-	sync_color("selection_color", _theme_color("selection_color", theme_cache.selection_color, TA_SELECTION));
-	sync_color("caret_color", _theme_color("caret_color", theme_cache.caret_color, TA_TEXT));
-	_apply_line_spacing(b);
 	if (chrome) {
 		chrome->set_position(Point2());
 		chrome->set_size(size);
@@ -700,7 +759,7 @@ void WebTextArea::_sync_editor_focus() {
 	editor->set_focus_mode(interactive ? FOCUS_ALL : FOCUS_NONE);
 }
 
-void WebTextArea::_apply_line_spacing(const BoxModel &p_box) {
+int WebTextArea::_line_spacing(const BoxModel &p_box) const {
 	// TextEdit rows are the font height (truncated to whole pixels) plus
 	// `line_spacing`; choose the spacing that makes a row exactly the CSS line
 	// height. Computed from the font, not read back from the editor, whose
@@ -709,10 +768,7 @@ void WebTextArea::_apply_line_spacing(const BoxModel &p_box) {
 	Ref<Font> font = _resolved_font();
 	int font_size = MAX(1, (int)Math::round(p_box.font_size));
 	int natural = font.is_valid() ? (int)font->get_height(font_size) : target;
-	int spacing = target - MAX(1, natural);
-	if (!editor->has_theme_constant_override("line_spacing") || editor->get_theme_constant("line_spacing") != spacing) {
-		editor->add_theme_constant_override("line_spacing", spacing);
-	}
+	return target - MAX(1, natural);
 }
 
 // ---------------------------------------------------------------------------
@@ -1886,10 +1942,20 @@ void WebTextArea::_bind_methods() {
 	BIND_THEME_ITEM(Theme::DATA_TYPE_STYLEBOX, WebTextArea, focus);
 }
 
-static Ref<ImageTexture> _ta_blank_texture(int p_w, int p_h) {
-	Ref<Image> image = Image::create_empty(p_w, p_h, false, Image::FORMAT_RGBA8);
-	image->fill(Color(0, 0, 0, 0));
-	return ImageTexture::create_from_image(image);
+// The hidden scrollbar buttons' blank icons (slot 0 vertical, 1 horizontal),
+// shared by every textarea the way the fonts are.
+static ObjectID ta_blank_texture_ids[2];
+
+static Ref<ImageTexture> _ta_blank_texture(int p_slot, int p_w, int p_h) {
+	MutexLock lock(ta_shared_mutex);
+	Ref<ImageTexture> texture = ObjectDB::get_ref<ImageTexture>(ta_blank_texture_ids[p_slot]);
+	if (texture.is_null()) {
+		Ref<Image> image = Image::create_empty(p_w, p_h, false, Image::FORMAT_RGBA8);
+		image->fill(Color(0, 0, 0, 0));
+		texture = ImageTexture::create_from_image(image);
+		ta_blank_texture_ids[p_slot] = texture->get_instance_id();
+	}
+	return texture;
 }
 
 WebTextArea::WebTextArea() {
@@ -1940,8 +2006,8 @@ WebTextArea::WebTextArea() {
 		ScrollBar *bar = bars[i];
 		Ref<StyleBoxEmpty> empty;
 		empty.instantiate();
-		Ref<ImageTexture> icon = i == 0 ? _ta_blank_texture((int)TA_SCROLLBAR, (int)TA_SCROLL_BUTTON)
-										: _ta_blank_texture((int)TA_SCROLL_BUTTON, (int)TA_SCROLLBAR);
+		Ref<ImageTexture> icon = i == 0 ? _ta_blank_texture(0, (int)TA_SCROLLBAR, (int)TA_SCROLL_BUTTON)
+										: _ta_blank_texture(1, (int)TA_SCROLL_BUTTON, (int)TA_SCROLLBAR);
 		for (const char *name : { "scroll", "scroll_focus", "grabber", "grabber_highlight", "grabber_pressed" }) {
 			bar->add_theme_style_override(name, empty);
 		}

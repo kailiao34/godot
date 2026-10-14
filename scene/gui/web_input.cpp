@@ -38,6 +38,7 @@
 #include "core/io/image.h"
 #include "core/io/resource_loader.h"
 #include "core/os/keyboard.h"
+#include "core/os/mutex.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/object/ref_counted.h"
@@ -83,6 +84,13 @@ static const Color CHROME_PLACEHOLDER = Color(117.0 / 255, 117.0 / 255, 117.0 / 
 static const Color CHROME_DISABLED_TEXT = Color(84.0 / 255, 84.0 / 255, 84.0 / 255, 1); // rgb(84,84,84)
 static const Color CHROME_DISABLED_BG = Color(248.0 / 255, 248.0 / 255, 248.0 / 255, 1); // rgb(248,248,248)
 static const Color CHROME_DISABLED_BORDER = Color(212.0 / 255, 212.0 / 255, 212.0 / 255, 1); // rgb(212,212,212)
+// Disabled checkbox/radio paint (Chrome 154), fitted as colour + alpha against
+// white and black backdrops: the border, the interior, the checked fill (the
+// disabled accent, painted over the interior) and the check mark.
+static const Color CHROME_DISABLED_CONTROL_BORDER = Color(189.0 / 255, 189.0 / 255, 189.0 / 255, 0.70);
+static const Color CHROME_DISABLED_CONTROL_BG = Color(245.0 / 255, 245.0 / 255, 245.0 / 255, 0.68);
+static const Color CHROME_DISABLED_ACCENT = Color(118.0 / 255, 118.0 / 255, 118.0 / 255, 0.3);
+static const Color CHROME_DISABLED_CHECK = Color(1, 1, 1, 0.6);
 // Windows system highlight, painted behind the focused date/time field.
 static const Color CHROME_FIELD_HIGHLIGHT = Color(0.0, 120.0 / 255, 215.0 / 255, 1);
 static const real_t CHROME_FONT_SIZE = 13.3333;
@@ -239,9 +247,13 @@ Size2 WebInput::_text_field_content_size(real_t p_font_size) const {
 	if (number_sized) {
 		chars = number_chars;
 	}
-	// Blink sizes the field from the primary face: the average character is
-	// the rounded advance of 'x' (DirectWrite reports no xAvgCharWidth), the
-	// widest the rounded `head` bounding box. Arial 13.3333px: 7 and 36.
+	// Blink sizes the field from the primary face: chars x the average
+	// character plus (widest - average), ceiled to a whole pixel. The average
+	// is the advance of 'x' (DirectWrite reports no xAvgCharWidth), taken up to
+	// the whole pixel when it rounds up and kept fractional when it rounds
+	// down; the widest is the rounded `head` bounding box. Arial 13.3333px: 7
+	// and 36 -> 169; Arial Bold: 7.415 and 35 -> 176 (fitted on 15 faces x 8
+	// sizes, 119/120; Courier New Bold 13.33px hints 'x' to 8.0).
 	Ref<Font> face = _resolved_font();
 	real_t avg_em = ARIAL_AVG_EM;
 	real_t max_em = ARIAL_MAX_EM;
@@ -260,9 +272,10 @@ Size2 WebInput::_text_field_content_size(real_t p_font_size) const {
 			max_em = bbox;
 		}
 	}
-	real_t avg = Math::round(avg_em * p_font_size);
+	real_t x = avg_em * p_font_size;
+	real_t avg = MAX(x, (real_t)Math::round(x));
 	real_t max = Math::round(max_em * p_font_size);
-	real_t width = Math::ceil(avg * chars) + (max - avg) + (number_sized ? NUMBER_SPIN_WIDTH : 0);
+	real_t width = Math::ceil(avg * chars + (max - avg) - 1e-3) + (number_sized ? NUMBER_SPIN_WIDTH : 0);
 	// The inner editor is one `normal` line of the field's own face (Arial
 	// Black for weight 800+, an author family), not always Arial's.
 	return Size2(width, _line_box(_resolved_font(), String(), p_font_size).height());
@@ -325,7 +338,7 @@ Ref<Font> WebInput::_resolved_font() const {
 	return _get_font();
 }
 
-Ref<Font> WebInput::_make_ua_font(const String &p_path, const String &p_system_name) const {
+Ref<Font> WebInput::_make_ua_font(const String &p_path, const String &p_system_name) {
 	// Prefer the real font file (exact glyphs + browser-matching metrics).
 	Ref<FontFile> ff;
 	ff.instantiate();
@@ -345,6 +358,23 @@ Ref<Font> WebInput::_make_ua_font(const String &p_path, const String &p_system_n
 	return sf;
 }
 
+// Every control draws with the same two UA faces. One FontFile per control
+// would read the file and warm a glyph/shaping cache for each of them, so the
+// controls share them. Only the controls hold them: the last one to go frees
+// them (no static reference outlives the scene).
+static Mutex wi_ua_font_mutex;
+static ObjectID wi_ua_font_ids[2];
+
+Ref<Font> WebInput::_shared_ua_font(int p_slot, const String &p_path, const String &p_system_name) {
+	MutexLock lock(wi_ua_font_mutex);
+	Ref<Font> font = ObjectDB::get_ref<Font>(wi_ua_font_ids[p_slot]);
+	if (font.is_null()) {
+		font = _make_ua_font(p_path, p_system_name);
+		wi_ua_font_ids[p_slot] = font->get_instance_id();
+	}
+	return font;
+}
+
 void WebInput::_rebuild_css_font() {
 	// Effective weight/spacing: a CSS author value wins, else the theme constant.
 	date_edit_width_cache = -1;
@@ -354,16 +384,27 @@ void WebInput::_rebuild_css_font() {
 	bool need = !css.font_family.is_empty() || eff_weight != 400 || eff_spacing != 0.0;
 	if (!need) {
 		css_font = Ref<Font>();
+		css_font_key = CssFontKey();
 		return;
 	}
-	Ref<FontVariation> fv;
-	fv.instantiate();
 	// A host that resolves CSS fonts itself hands the face over as the theme
 	// `font` -- already at the right weight, with the fallback faces the
 	// browser would use for scripts it lacks. That face wins; the family list
 	// is only resolved here when no such face was given.
 	bool themed = theme_cache.font.is_valid() && theme_cache.font != ThemeDB::get_singleton()->get_fallback_font();
-	Ref<Font> base = themed ? theme_cache.font : ua_font;
+	CssFontKey key;
+	key.base = themed ? theme_cache.font : ua_font;
+	key.themed = themed;
+	key.family = css.font_family;
+	key.weight = eff_weight;
+	key.spacing = (int)Math::round(eff_spacing);
+	if (css_font.is_valid() && key == css_font_key) {
+		return; // the same face again: keep it (and the editor's shaping).
+	}
+	css_font_key = key;
+	Ref<FontVariation> fv;
+	fv.instantiate();
+	Ref<Font> base = key.base;
 	bool own_face = false;
 	if (!themed && !css.font_family.is_empty()) {
 		Ref<SystemFont> sf;
@@ -528,7 +569,9 @@ WebInput::BoxModel WebInput::_compute_box_model() const {
 			}
 			real_t w = image_width >= 0 ? (real_t)image_width
 									    : (src_texture.is_valid() ? (real_t)src_texture->get_width() : alt_w);
-			real_t alt_h = alt_w > 0 ? MAX((real_t)16.0, _line_box(_resolved_font(), _image_fallback_text(), _date_font_size()).height()) : 0.0;
+			// The alt text's line box: its `line-height` when set, never shorter than the icon.
+			real_t alt_line = css.has_line_height ? css.line_height : _line_box(_resolved_font(), _image_fallback_text(), _date_font_size()).height();
+			real_t alt_h = alt_w > 0 ? MAX((real_t)16.0, alt_line) : 0.0;
 			real_t h = image_height >= 0 ? (real_t)image_height
 										 : (src_texture.is_valid() ? (real_t)src_texture->get_height() : alt_h);
 			b.border_box = Size2(w, h);
@@ -667,8 +710,11 @@ void WebInput::_apply_css_overrides(BoxModel &b) const {
 			// Chromium's inner editor is never shorter than one normal line.
 			content_h = MAX(content_h, css.line_height);
 		} else if (_is_datetime_family()) {
-			// Likewise the date/time editor, whose fields keep their 1px padding.
-			content_h = MAX(content_h, css.line_height + 2);
+			// The date/time fields' line box is the line-height plus their 1px
+			// padding above and below; only the picker indicator sets a floor
+			// (not a normal line): 13.33px Arial with line-height:10px is 17.33px
+			// tall inside, the calendar indicator (Chrome 154).
+			content_h = MAX(css.line_height + 2, _date_indicator_size());
 		} else if (input_type != TYPE_SUBMIT && input_type != TYPE_RESET && input_type != TYPE_BUTTON
 				&& input_type != TYPE_CHECKBOX && input_type != TYPE_RADIO && input_type != TYPE_RANGE && input_type != TYPE_COLOR) {
 			content_h = css.line_height; // line box drives the content height.
@@ -895,12 +941,15 @@ WebInput::Layout WebInput::_compute_layout(const BoxModel &b) const {
 	}
 	if (position == LABEL_TOP || position == LABEL_BOTTOM) {
 		// Stacked, the text and the control are lines of their own, so
-		// text-align places each in the label box.
+		// text-align places each in the label box -- the clamped one under a
+		// max-width -- and a line wider than the box starts at its start edge
+		// and overflows the end (CSS Text 3).
 		int align = label_alignment >= 0 ? label_alignment : (b.text_align >= 0 ? b.text_align : (int)HORIZONTAL_ALIGNMENT_LEFT);
 		real_t f_align = align == (int)HORIZONTAL_ALIGNMENT_CENTER ? 0.5 : align == (int)HORIZONTAL_ALIGNMENT_RIGHT ? 1.0 : 0.0;
+		real_t box = label_max_width >= 0 ? MIN(L.total.x, label_max_width) : L.total.x;
 		if (f_align > 0.0) {
-			L.label_pos.x = (L.total.x - ls.x) * f_align;
-			L.input_origin.x = (L.total.x - ow) * f_align + m[3];
+			L.label_pos.x = MAX((real_t)0.0, (box - ls.x) * f_align);
+			L.input_origin.x = MAX((real_t)0.0, (box - ow) * f_align) + m[3];
 		}
 	}
 	return L;
@@ -979,6 +1028,14 @@ real_t WebInput::_input_text_baseline(const BoxModel &b) const {
 	if (_is_datetime_family()) {
 		// The fields wrapper is centred in the content box and pads its line
 		// box by a pixel.
+		if (css.has_line_height) {
+			// A set line-height is the line box: the primary face's ascent and
+			// descent sit in it with the half-leading floored above, and a
+			// fallback face (the Han placeholder) no longer grows it.
+			LineBox primary = _line_box(_date_font(), String(), fs, false);
+			real_t top = ct + (ch - (css.line_height + 2)) * 0.5 + 1;
+			return top + Math::floor((css.line_height - primary.height()) * 0.5) + primary.ascent;
+		}
 		LineBox lb = _date_line_box();
 		return ct + (ch - (lb.height() + 2)) * 0.5 + 1 + lb.ascent;
 	}
@@ -1231,39 +1288,66 @@ void WebInput::_draw_button(const BoxModel &p_box) {
 
 void WebInput::_draw_checkbox(const BoxModel &p_box, bool p_radio) {
 	// Chromium stretches the box but keeps the control square, centring a
-	// glyph of min(width, height) inside it.
+	// glyph of min(width, height) inside it, and paints it on the
+	// pixel-snapped rect (a label in front leaves the box at a fractional x).
 	Size2 box = p_box.border_box;
 	real_t side = MIN(box.x, box.y);
 	Point2 at((box.x - side) * 0.5, (box.y - side) * 0.5);
 	Size2 sz(side, side);
+	{
+		Transform2D to_canvas = get_global_transform_with_canvas().translated_local(draw_base);
+		Transform2D from_canvas = to_canvas.affine_inverse();
+		Point2 start = from_canvas.xform(to_canvas.xform(at).round());
+		Point2 end = from_canvas.xform(to_canvas.xform(at + sz).round());
+		at = start;
+		sz = end - start;
+	}
 	Rect2 r(at, sz);
 	Color accent = _accent_color();
+	// A checked box darkens under the pointer and lightens while pressed,
+	// like the range's filled track.
+	if (checked && !disabled && pressed) {
+		accent = accent.lerp(Color(1, 1, 1), 0.216);
+	} else if (checked && !disabled && hovered) {
+		accent = accent.lerp(Color(0, 0, 0), 0.215);
+	}
 	if (p_radio) {
-		// Antialiased ring to match Chromium's smooth circle edge.
+		// A 1px antialiased ring, the interior and a dot of 0.3 x the side.
+		// Translucent disabled colours must not overlap, so the ring is a stroke.
 		Vector2 c = at + sz * 0.5;
-		real_t rad = side * 0.5;
-		// Chromium's radio ring is a lighter gray (~#999) than the checkbox border.
-		draw_circle(c, rad, checked ? accent : Color(0.6, 0.6, 0.6), true, -1.0, true);
-		draw_circle(c, rad - 1.0, Color(1, 1, 1), true, -1.0, true);
+		real_t rad = MIN(sz.x, sz.y) * 0.5;
+		Color ring = disabled ? CHROME_DISABLED_CONTROL_BORDER : (checked ? accent : CHROME_FIELD_BORDER);
+		draw_circle(c, rad - 1.0, disabled ? CHROME_DISABLED_CONTROL_BG : Color(1, 1, 1), true, -1.0, true);
+		draw_arc(c, rad - 0.5, 0.0, Math::TAU, 64, ring, 1.0, true);
 		if (checked) {
-			draw_circle(c, rad * 0.42, accent, true, -1.0, true);
+			draw_circle(c, MIN(sz.x, sz.y) * 0.3, disabled ? CHROME_DISABLED_ACCENT : accent, true, -1.0, true);
 		}
 	} else {
-		// White fill, 1px gray border, ~2px rounded corners (StyleBoxFlat gives
-		// the rounded antialiased edge Chromium draws). Checked uses OS accent.
+		// 1px border, ~2px rounded corners (StyleBoxFlat gives the rounded
+		// antialiased edge Chromium draws). Checked fills with the OS accent;
+		// a disabled box keeps its border and lays the disabled accent over
+		// the interior.
 		Ref<StyleBoxFlat> sb;
 		sb.instantiate();
-		sb->set_bg_color(checked ? accent : Color(1, 1, 1));
 		sb->set_border_width_all(1);
-		sb->set_border_color(checked ? accent : CHROME_FIELD_BORDER);
 		sb->set_corner_radius_all(2);
+		if (disabled) {
+			sb->set_bg_color(CHROME_DISABLED_CONTROL_BG);
+			sb->set_border_color(CHROME_DISABLED_CONTROL_BORDER);
+		} else {
+			sb->set_bg_color(checked ? accent : Color(1, 1, 1));
+			sb->set_border_color(checked ? accent : CHROME_FIELD_BORDER);
+		}
 		draw_style_box(sb, r);
 		if (checked) {
+			if (disabled) {
+				draw_rect(r.grow(-1.0), CHROME_DISABLED_ACCENT);
+			}
 			Vector<Point2> pts;
 			pts.push_back(at + Point2(sz.x * 0.22, sz.y * 0.52));
 			pts.push_back(at + Point2(sz.x * 0.42, sz.y * 0.72));
 			pts.push_back(at + Point2(sz.x * 0.80, sz.y * 0.28));
-			draw_polyline(pts, Color(1, 1, 1), MAX((real_t)1.5, side * 0.115), true);
+			draw_polyline(pts, disabled ? CHROME_DISABLED_CHECK : Color(1, 1, 1), MAX((real_t)1.5, side * 0.115), true);
 		}
 	}
 }
@@ -1336,12 +1420,17 @@ void WebInput::_draw_range(const BoxModel &p_box) {
 	real_t track_h = band_h * 0.5;
 	real_t thumb_r = band_h * 0.5;
 	Color accent = _accent_color();
+	// Hover darkens the filled track only; the thumb keeps the accent
+	// (Chrome 154). Pressing lightens both.
+	Color thumb_accent = accent;
 	Color face = CHROME_BUTTON_BG;
 	if (disabled) {
 		accent = CHROME_DISABLED_BORDER;
+		thumb_accent = accent;
 		face = CHROME_DISABLED_BG;
 	} else if (pressed) {
 		accent = accent.lerp(Color(1, 1, 1), 0.216); // #0075ff -> #3793ff
+		thumb_accent = accent;
 		face = CHROME_FACE_ACTIVE;
 	} else if (hovered) {
 		accent = accent.lerp(Color(0, 0, 0), 0.215); // #0075ff -> #005cc8
@@ -1372,7 +1461,7 @@ void WebInput::_draw_range(const BoxModel &p_box) {
 	if (fill_w > 0) {
 		Local::pill(this, Rect2(1, cy - track_h * 0.5, fill_w, track_h), accent, track_r);
 	}
-	Local::pill(this, Rect2(thumb_cx - thumb_r, cy - thumb_r, thumb_r * 2, thumb_r * 2), accent,
+	Local::pill(this, Rect2(thumb_cx - thumb_r, cy - thumb_r, thumb_r * 2, thumb_r * 2), thumb_accent,
 			(int)Math::round(thumb_r));
 }
 
@@ -1588,6 +1677,11 @@ void WebInput::_step_number(int p_dir) {
 
 void WebInput::_open_color_picker() {
 	if (disabled || readonly) {
+		return;
+	}
+	if (external_color_picker_enabled) {
+		Color current = value.is_valid_html_color() ? Color::html(value) : Color(0, 0, 0, 1);
+		emit_signal(SNAME("color_picker_requested"), current);
 		return;
 	}
 	if (!color_popup) {
@@ -2123,9 +2217,31 @@ real_t WebInput::_date_part_max_width(const DatePart &p_part, const Ref<Font> &p
 	real_t w = _date_text_width(p_font, p_part.placeholder, p_font_size);
 	const DateLocaleEntry &loc = date_locale_entry(_resolved_date_locale());
 	Vector<String> candidates;
+	// Blink (DateTimeNumericFieldElement::MaximumWidth) measures each numeric
+	// field's largest value as text -- year 275760, month 12, day 31, ... --
+	// which only matches "00…" in a font with tabular figures.
 	switch (p_part.field) {
 		case FIELD_YEAR:
-			candidates.push_back("0000");
+			candidates.push_back("275760");
+			break;
+		case FIELD_MONTH:
+			candidates.push_back("12");
+			break;
+		case FIELD_DAY:
+			candidates.push_back("31");
+			break;
+		case FIELD_WEEK:
+			candidates.push_back("53");
+			break;
+		case FIELD_HOUR12:
+			candidates.push_back("12");
+			break;
+		case FIELD_HOUR24:
+			candidates.push_back("23");
+			break;
+		case FIELD_MINUTE:
+		case FIELD_SECOND:
+			candidates.push_back("59");
 			break;
 		case FIELD_MONTH_NAME:
 			for (int i = 0; i < 12; i++) {
@@ -2200,11 +2316,9 @@ real_t WebInput::_date_edit_width() const {
 			w += _date_part_max_width(p, f, fs) + 2;
 		}
 	}
-	// Chromium reserves six digits for a year (275760); the four the year
-	// field holds above leave two digits over. The clock editor has no year;
-	// its indicator keeps its own 8px gap instead (_compute_box_model). The
+	// The year's six reserved digits are part of its maximum text above. The
+	// clock editor's indicator keeps its own 8px gap (_compute_box_model). The
 	// editor's width is rounded up to whole pixels.
-	w += _is_calendar_family() ? 2 * _date_text_width(f, "0", fs) : 0.0;
 	date_edit_width_cache = Math::ceil(w - 0.001);
 	return date_edit_width_cache;
 }
@@ -2641,8 +2755,10 @@ void WebInput::_draw_picker_indicator(const BoxModel &p_box) {
 	// The indicator sits flush against the content box's right edge and is
 	// vertically centred; its size also sets the control's height.
 	real_t bx = MAX(p_box.border[3], sz.x - p_box.border[1] - ind);
-	real_t by = (sz.y - ind) * 0.5;
-	Color col = disabled ? CHROME_DISABLED_TEXT : p_box.text_color;
+	real_t by = Math::round((sz.y - ind) * 0.5);
+	// The UA indicator is an image in the field's own text colour: an author
+	// `color` does not tint it (Chrome 154).
+	Color col = disabled ? CHROME_DISABLED_TEXT : CHROME_TEXT_FG;
 
 	if (_is_calendar_family()) {
 		// 11x11.5 calendar: two rings, a filled title band and an open body.
@@ -2875,7 +2991,7 @@ void WebInput::_draw_image(const BoxModel &p_box) {
 	if (f.is_valid()) {
 		// The icon floats left; the alt text's line box starts at the top.
 		_draw_text_css(f, Point2(icon, Math::round(_input_text_baseline(p_box))), _image_fallback_text(),
-				_date_font_size(), CHROME_TEXT_FG, MAX((real_t)0.0, sz.x - icon));
+				_date_font_size(), p_box.text_color, MAX((real_t)0.0, sz.x - icon));
 	}
 }
 
@@ -3081,6 +3197,31 @@ void WebInput::_sync_line_edit() {
 		return;
 	}
 	BoxModel b = _compute_box_model();
+	// Typography overrides (resolved from CSS, else UA defaults), written
+	// before the editor's minimum size is read below. Each one re-shapes the
+	// editor, so they go out only when something changed, as one notification.
+	EditorTypography typography;
+	typography.font = _resolved_font();
+	typography.font_size = (int)Math::round(b.font_size);
+	typography.font_color = b.text_color;
+	typography.placeholder_color = theme_cache.font_placeholder_color;
+	typography.selection_color = theme_cache.selection_color;
+	typography.caret_color = theme_cache.caret_color;
+	if (!editor_typography_written || !(typography == editor_typography)) {
+		editor_typography = typography;
+		editor_typography_written = true;
+		line_edit->begin_bulk_theme_override();
+		line_edit->add_theme_font_override("font", typography.font);
+		line_edit->add_theme_font_size_override("font_size", typography.font_size);
+		line_edit->add_theme_color_override("font_color", typography.font_color);
+		// Not editable (disabled or readonly), LineEdit draws with this colour:
+		// a readonly field keeps its text colour, a disabled one has its own.
+		line_edit->add_theme_color_override("font_uneditable_color", typography.font_color);
+		line_edit->add_theme_color_override("font_placeholder_color", typography.placeholder_color);
+		line_edit->add_theme_color_override("selection_color", typography.selection_color);
+		line_edit->add_theme_color_override("caret_color", typography.caret_color);
+		line_edit->end_bulk_theme_override();
+	}
 	Size2 sz = b.border_box; // the input box, not the labelled composite.
 	Point2 origin = _compute_layout(b).input_origin;
 	// Let the LineEdit fill the whole input box and inset its text via the
@@ -3123,23 +3264,17 @@ void WebInput::_sync_line_edit() {
 		line_edit->set_position(origin + Point2(0, content_top + vcorr));
 	}
 	line_edit->set_size(edit_size);
-	line_edit->set_text(value);
+	// Re-setting the same text would re-shape it twice and drop the caret and
+	// the editor's undo history.
+	if (line_edit->get_text() != value) {
+		line_edit->set_text(value);
+	}
 	line_edit->set_placeholder(placeholder);
 	line_edit->set_editable(!disabled && !readonly);
 	line_edit->set_secret(input_type == TYPE_PASSWORD);
-	if (maxlength >= 0) {
+	if (maxlength >= 0 && line_edit->get_max_length() != maxlength) {
 		line_edit->set_max_length(maxlength);
 	}
-	// Typography overrides (resolved from CSS, else UA defaults).
-	line_edit->add_theme_font_override("font", _resolved_font());
-	line_edit->add_theme_font_size_override("font_size", (int)Math::round(b.font_size));
-	line_edit->add_theme_color_override("font_color", b.text_color);
-	// Not editable (disabled or readonly), LineEdit draws with this colour:
-	// a readonly field keeps its text colour, a disabled one has its own.
-	line_edit->add_theme_color_override("font_uneditable_color", b.text_color);
-	line_edit->add_theme_color_override("font_placeholder_color", theme_cache.font_placeholder_color);
-	line_edit->add_theme_color_override("selection_color", theme_cache.selection_color);
-	line_edit->add_theme_color_override("caret_color", theme_cache.caret_color);
 	line_edit->set_horizontal_alignment(b.text_align >= 0 ? (HorizontalAlignment)b.text_align : HORIZONTAL_ALIGNMENT_LEFT);
 }
 
@@ -3739,6 +3874,12 @@ static int _css_text_align(const String &p_val) {
 }
 
 void WebInput::set_css(const String &p_property, const String &p_value) {
+	if (_apply_css_declaration(p_property, p_value)) {
+		_css_changed();
+	}
+}
+
+bool WebInput::_apply_css_declaration(const String &p_property, const String &p_value) {
 	String prop = p_property.strip_edges().to_lower();
 	String val = p_value.strip_edges();
 	real_t len;
@@ -3875,9 +4016,27 @@ void WebInput::set_css(const String &p_property, const String &p_value) {
 			css.letter_spacing = len;
 		}
 	} else {
-		return; // unsupported property: ignore.
+		return false; // unsupported property: ignore.
 	}
+	return true;
+}
 
+bool WebInput::_apply_css_text(const String &p_css) {
+	bool applied = false;
+	for (const String &decl : p_css.split(";", false)) {
+		int colon = decl.find(":");
+		if (colon < 0) {
+			continue;
+		}
+		applied = _apply_css_declaration(decl.substr(0, colon), decl.substr(colon + 1)) || applied;
+	}
+	return applied;
+}
+
+// The font, the date fields, the minimum size and the editor all follow from
+// the whole declaration set, so a batch is refreshed once, after its last
+// declaration; the minimum size is current when the call returns.
+void WebInput::_css_changed() {
 	_rebuild_css_font();
 	if (_is_datetime_family()) {
 		_layout_date_parts();
@@ -3888,24 +4047,20 @@ void WebInput::set_css(const String &p_property, const String &p_value) {
 }
 
 void WebInput::set_css_text(const String &p_css) {
-	for (const String &decl : p_css.split(";", false)) {
-		int colon = decl.find(":");
-		if (colon < 0) {
-			continue;
-		}
-		set_css(decl.substr(0, colon), decl.substr(colon + 1));
+	if (_apply_css_text(p_css)) {
+		_css_changed();
 	}
+}
+
+void WebInput::replace_css(const String &p_css) {
+	css = CssStyle();
+	_apply_css_text(p_css);
+	_css_changed();
 }
 
 void WebInput::clear_css() {
 	css = CssStyle();
-	css_font = Ref<Font>();
-	if (_is_datetime_family()) {
-		_layout_date_parts();
-	}
-	update_minimum_size();
-	_sync_line_edit();
-	queue_redraw();
+	_css_changed();
 }
 
 Dictionary WebInput::get_test_metrics() const {
@@ -4406,6 +4561,19 @@ void WebInput::set_label_wrap_width(real_t p_width) {
 real_t WebInput::get_label_wrap_width() const {
 	return label_wrap_width;
 }
+
+void WebInput::set_label_max_width(real_t p_width) {
+	if (Math::is_equal_approx(label_max_width, p_width)) {
+		return;
+	}
+	label_max_width = p_width;
+	_sync_line_edit();
+	queue_redraw();
+}
+
+real_t WebInput::get_label_max_width() const {
+	return label_max_width;
+}
 void WebInput::set_label_letter_spacing(real_t p_spacing) {
 	if (Math::is_equal_approx(label_letter_spacing, p_spacing)) {
 		return;
@@ -4479,6 +4647,23 @@ int WebInput::get_image_height() const {
 }
 
 // ---------------------------------------------------------------------------
+void WebInput::set_external_color_picker_enabled(bool p_enabled) {
+	external_color_picker_enabled = p_enabled;
+	if (p_enabled && color_popup != nullptr) {
+		color_popup->hide();
+	}
+}
+
+bool WebInput::is_external_color_picker_enabled() const {
+	return external_color_picker_enabled;
+}
+
+void WebInput::apply_external_color(const Color &p_color) {
+	if (input_type == TYPE_COLOR && !disabled && !readonly) {
+		_on_color_picked(p_color);
+	}
+}
+
 void WebInput::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_input_type", "type"), &WebInput::set_input_type);
 	ClassDB::bind_method(D_METHOD("get_input_type"), &WebInput::get_input_type);
@@ -4489,6 +4674,7 @@ void WebInput::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_test_metrics"), &WebInput::get_test_metrics);
 	ClassDB::bind_method(D_METHOD("set_css", "property", "value"), &WebInput::set_css);
 	ClassDB::bind_method(D_METHOD("set_css_text", "css"), &WebInput::set_css_text);
+	ClassDB::bind_method(D_METHOD("replace_css", "css"), &WebInput::replace_css);
 	ClassDB::bind_method(D_METHOD("clear_css"), &WebInput::clear_css);
 	ClassDB::bind_method(D_METHOD("check_validity"), &WebInput::check_validity);
 	ClassDB::bind_method(D_METHOD("send_date_key", "keycode"), &WebInput::send_date_key);
@@ -4556,6 +4742,8 @@ void WebInput::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_label_position"), &WebInput::get_label_position);
 	ClassDB::bind_method(D_METHOD("set_label_wrap_width", "width"), &WebInput::set_label_wrap_width);
 	ClassDB::bind_method(D_METHOD("get_label_wrap_width"), &WebInput::get_label_wrap_width);
+	ClassDB::bind_method(D_METHOD("set_label_max_width", "width"), &WebInput::set_label_max_width);
+	ClassDB::bind_method(D_METHOD("get_label_max_width"), &WebInput::get_label_max_width);
 	ClassDB::bind_method(D_METHOD("set_label_letter_spacing", "spacing"), &WebInput::set_label_letter_spacing);
 	ClassDB::bind_method(D_METHOD("get_label_letter_spacing"), &WebInput::get_label_letter_spacing);
 	ClassDB::bind_method(D_METHOD("set_label_decoration_lines", "lines"), &WebInput::set_label_decoration_lines);
@@ -4601,6 +4789,8 @@ void WebInput::_bind_methods() {
 			"set_label_position", "get_label_position");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "label_wrap_width", PROPERTY_HINT_NONE, "suffix:px"),
 			"set_label_wrap_width", "get_label_wrap_width");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "label_max_width", PROPERTY_HINT_NONE, "suffix:px"),
+			"set_label_max_width", "get_label_max_width");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "label_letter_spacing", PROPERTY_HINT_NONE, "suffix:px"),
 			"set_label_letter_spacing", "get_label_letter_spacing");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "label_decoration_lines", PROPERTY_HINT_FLAGS, "Underline,Overline,Line Through"),
@@ -4615,6 +4805,12 @@ void WebInput::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "image_width", PROPERTY_HINT_RANGE, "-1,10000,1"), "set_image_width", "get_image_width");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "image_height", PROPERTY_HINT_RANGE, "-1,10000,1"), "set_image_height", "get_image_height");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "accept"), "set_accept", "get_accept");
+
+	ClassDB::bind_method(D_METHOD("set_external_color_picker_enabled", "enabled"), &WebInput::set_external_color_picker_enabled);
+	ClassDB::bind_method(D_METHOD("is_external_color_picker_enabled"), &WebInput::is_external_color_picker_enabled);
+	ClassDB::bind_method(D_METHOD("apply_external_color", "color"), &WebInput::apply_external_color);
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "external_color_picker_enabled"), "set_external_color_picker_enabled", "is_external_color_picker_enabled");
+	ADD_SIGNAL(MethodInfo("color_picker_requested", PropertyInfo(Variant::COLOR, "color")));
 
 	ADD_SIGNAL(MethodInfo("value_changed", PropertyInfo(Variant::STRING, "value")));
 	ADD_SIGNAL(MethodInfo("submitted", PropertyInfo(Variant::STRING, "value")));
@@ -4698,8 +4894,8 @@ WebInput::WebInput() {
 	// font file so the glyph shapes AND vertical metrics match the browser
 	// (SystemFont can report a taller ascent, which mis-centers the text); fall
 	// back to a SystemFont if the file is unavailable.
-	ua_font = _make_ua_font("C:/Windows/Fonts/arial.ttf", "Arial");
-	ua_mono_font = _make_ua_font("C:/Windows/Fonts/consola.ttf", "Consolas");
+	ua_font = _shared_ua_font(0, "C:/Windows/Fonts/arial.ttf", "Arial");
+	ua_mono_font = _shared_ua_font(1, "C:/Windows/Fonts/consola.ttf", "Consolas");
 
 	// Embedded editor for text-family types (created once; visibility toggled
 	// by type). Its own chrome is stripped so WebInput draws the Chromium box.

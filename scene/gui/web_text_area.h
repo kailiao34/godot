@@ -181,6 +181,17 @@ private:
 	};
 	CssStyle css;
 	Ref<Font> css_font; // resolved font when the author changes family/weight/spacing.
+	// What css_font was built from; the same inputs keep the same font.
+	struct CssFontKey {
+		String family;
+		int weight = 400;
+		real_t spacing = 0;
+		Ref<Font> theme_font;
+		Ref<Font> ua_font;
+		bool operator==(const CssFontKey &p_other) const {
+			return family == p_other.family && weight == p_other.weight && spacing == p_other.spacing && theme_font == p_other.theme_font && ua_font == p_other.ua_font;
+		}
+	} css_font_key;
 
 	struct ThemeCache {
 		Ref<Font> font; // empty => the UA monospace font.
@@ -262,7 +273,7 @@ private:
 	BoxModel _compute_box_model() const;
 	void _sync_editor();
 	void _sync_editor_focus();
-	void _apply_line_spacing(const BoxModel &p_box);
+	int _line_spacing(const BoxModel &p_box) const;
 	ScrollGeometry _scroll_geometry(const BoxModel &p_box) const;
 	ChromePart _part_at(const Point2 &p_pos) const;
 	void _draw_box(const BoxModel &p_box);

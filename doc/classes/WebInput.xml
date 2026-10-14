@@ -6,7 +6,7 @@
 	<description>
 		[WebInput] reproduces an HTML [code]&lt;input&gt;[/code] element as a Godot [Control]. A single node selects its appearance and behavior through [member input_type], exactly like the HTML [code]type[/code] attribute, and its default styling matches Chromium's user-agent stylesheet pixel-for-pixel for the text family. The node's [member Control.size] corresponds to the CSS [code]width[/code]/[code]height[/code] (border-box).
 		[b]Types.[/b] All 22 HTML input types are supported (see the [code]TYPE_*[/code] constants): the text family ([constant TYPE_TEXT], [constant TYPE_PASSWORD], [constant TYPE_EMAIL], [constant TYPE_URL], [constant TYPE_TEL], [constant TYPE_SEARCH], [constant TYPE_NUMBER]) embeds a [LineEdit] for editing; buttons, checkbox/radio, range, color, file, image, the date/time family and [constant TYPE_HIDDEN] are custom-drawn to match the browser.
-		[b]Styling.[/b] Author styling is layered over the user-agent defaults like the CSS cascade. Use [method set_css] for a single declaration, [method set_css_text] for an inline-style string, or [method clear_css] to reset. The box group (background-color, border width/color/style, border-radius, padding, box-shadow, box-sizing) is composed into a [StyleBoxFlat]; the typography group (color, font-size, font-family, font-weight, line-height, text-align, letter-spacing) is applied to the text and to the [member label_text]. Native widgets (checkbox/radio) intentionally ignore box styling to match the browser's native rendering.
+		[b]Styling.[/b] Author styling is layered over the user-agent defaults like the CSS cascade. Use [method set_css] for a single declaration, [method set_css_text] for an inline-style string, [method replace_css] to replace the whole style at once, or [method clear_css] to reset. The box group (background-color, border width/color/style, border-radius, padding, box-shadow, box-sizing) is composed into a [StyleBoxFlat]; the typography group (color, font-size, font-family, font-weight, line-height, text-align, letter-spacing) is applied to the text and to the [member label_text]. Native widgets (checkbox/radio) intentionally ignore box styling to match the browser's native rendering.
 		[b]Labels.[/b] Set [member label_text] and [member label_position] to wrap the input with a label, equivalent to an HTML [code]&lt;label&gt;[/code] surrounding the input.
 		[b]Validation and forms.[/b] [method check_validity] performs HTML constraint validation; [method submit_form] and [method reset_form] act on sibling [WebInput] nodes that share the same parent.
 		[b]Testing.[/b] The [code]tools/webinput_bridge[/code] harness renders the same specification in a real Godot window and in real Chromium (via Playwright) and compares the computed styling, geometry and pixels; [method get_test_metrics] exposes the node's resolved box model for that comparison.
@@ -15,6 +15,11 @@
 	<tutorials>
 	</tutorials>
 	<methods>
+		<method name="apply_external_color">
+			<return type="void" />
+			<param index="0" name="color" type="Color" />
+			<description>Applies the application's shared color selection to a writable color input, emitting [signal value_changed] with a lowercase RGB hex value.</description>
+		</method>
 		<method name="set_label_cursor_shape"><return type="void" /><param index="0" name="shape" type="int" enum="Control.CursorShape" /><description>Sets the wrapping label's cursor independently of the native control.</description></method>
 		<method name="get_label_cursor_shape" qualifiers="const"><return type="int" enum="Control.CursorShape" /><description>Returns the wrapping label's cursor.</description></method>
 		<method name="get_label_text_rect" qualifiers="const"><return type="Rect2" /><description>Returns the shaped wrapping label's local text rectangle.</description></method>
@@ -66,6 +71,13 @@
 				Returns the node's resolved box model as a [Dictionary], used by the [code]webinput_bridge[/code] comparator to diff against Chromium's [code]getComputedStyle[/code]. Keys include [code]size[/code], [code]border[/code], [code]padding[/code], [code]background_color[/code], [code]text_color[/code], [code]border_color[/code], [code]font_size[/code], [code]border_radius[/code], [code]box_shadow[/code], [code]font_weight[/code], [code]line_height[/code], [code]letter_spacing[/code], [code]text_align[/code] and [code]type[/code].
 			</description>
 		</method>
+		<method name="replace_css">
+			<return type="void" />
+			<param index="0" name="css" type="String" />
+			<description>
+				Replaces every CSS override with the declarations of the inline-style string [param css], like assigning an element's [code]style.cssText[/code] in the browser: the same as [method clear_css] followed by [method set_css_text], but the control's font, editor and minimum size are refreshed once. [method Control.get_combined_minimum_size] reflects the new style as soon as the call returns. An empty string clears the style.
+			</description>
+		</method>
 		<method name="reset_form">
 			<return type="void" />
 			<description>
@@ -99,7 +111,7 @@
 			<return type="void" />
 			<param index="0" name="css" type="String" />
 			<description>
-				Parses and applies a full inline-style string, e.g. [code]set_css_text("border:1px solid red; padding:8px; box-shadow:0 2px 4px rgba(0,0,0,.3)")[/code]. Each [code]property:value[/code] declaration (separated by [code];[/code]) is forwarded to [method set_css].
+				Parses and applies a full inline-style string, e.g. [code]set_css_text("border:1px solid red; padding:8px; box-shadow:0 2px 4px rgba(0,0,0,.3)")[/code]. Each [code]property:value[/code] declaration (separated by [code];[/code]) is applied as [method set_css] would, on top of the declarations already set; the control's font, editor and minimum size are refreshed once, after the last one.
 			</description>
 		</method>
 		<method name="set_html_attribute">
@@ -132,6 +144,9 @@
 		</method>
 	</methods>
 	<members>
+		<member name="external_color_picker_enabled" type="bool" setter="set_external_color_picker_enabled" getter="is_external_color_picker_enabled" default="false">
+			Delegates color selection to [signal color_picker_requested] instead of creating a native [ColorPicker].
+		</member>
 		<member name="accept" type="String" setter="set_accept" getter="get_accept" default="&quot;&quot;">
 			For [constant TYPE_FILE], the comma-separated list of accepted file types (extensions like [code].png[/code] or MIME wildcards like [code]image/*[/code]), used to build the file dialog filters. Equivalent to the HTML [code]accept[/code] attribute.
 		</member>
@@ -214,6 +229,10 @@
 		</member>
 	</members>
 	<signals>
+		<signal name="color_picker_requested">
+			<param index="0" name="color" type="Color" />
+			<description>Requests an application color picker for this writable color input. Finish with [method apply_external_color].</description>
+		</signal>
 		<signal name="form_submitted">
 			<param index="0" name="data" type="Dictionary" />
 			<description>
